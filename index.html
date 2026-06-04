@@ -88,10 +88,11 @@
     </div>
 
     <script>
-        // 전용 실시간 데이터베이스 주소
         const DB_URL = "https://mure-counter-default-rtdb.asia-southeast1.firebasedatabase.app/counter.json";
         
         let currentCount = 0;
+        let isUpdating = false; // 내가 버튼을 누르고 전송하는 동안 서버 조회를 잠시 멈추는 안전장치
+        
         const countView = document.getElementById('count-view');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
@@ -103,47 +104,62 @@
 
         // 서버에서 최신 숫자를 가져오는 함수
         function updateCountFromServer() {
+            if (isUpdating) return; // 내가 버튼 누르는 중이면 서버 조회 건너뜀 (튕김 방지)
+
             fetch(DB_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
                 .then(res => res.json())
                 .then(data => {
-                    // 서버에 값이 아예 없거나(null) NaN일 경우 강제로 0으로 초기 세팅 수행
-                    if (data === null || data === undefined || isNaN(data)) {
-                        sendCountToServer(0);
-                        currentCount = 0;
-                    } else {
+                    if (isUpdating) return; 
+                    
+                    // 데이터가 완전히 유효한 숫자일 때만 화면을 갱신
+                    if (data !== null && data !== undefined && !isNaN(data)) {
                         currentCount = Number(data);
+                        countView.innerText = currentCount;
                     }
-                    countView.innerText = currentCount;
                 })
-                .catch(err => console.log("서버 연결 대기 중..."));
+                .catch(err => console.log("연결 대기 중..."));
         }
 
+        // 버튼 누를 때 실행
         function changeCount(amount) {
+            isUpdating = true; // 통신 잠금
             currentCount += amount;
             countView.innerText = currentCount;
+            
             sendCountToServer(currentCount);
         }
 
+        // 초기화 버튼
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
+                isUpdating = true;
                 currentCount = 0;
                 countView.innerText = 0;
+                
                 sendCountToServer(0);
             }
         }
 
+        // 서버에 값을 강제로 저장하는 함수
         function sendCountToServer(targetValue) {
             fetch(DB_URL, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(targetValue)
+            })
+            .then(() => {
+                // 전송이 완전히 끝나고 0.3초 뒤에 조회를 다시 허용 (안정성 극대화)
+                setTimeout(() => { isUpdating = false; }, 300);
+            })
+            .catch(() => {
+                isUpdating = false;
             });
         }
 
-        // 구동 즉시 시작
+        // 켜자마자 실행
         updateCountFromServer();
 
-        // 0.5초마다 자동 실시간 동기화 체크
+        // 0.5초마다 동기화 실행
         setInterval(updateCountFromServer, 500);
     </script>
 </body>
