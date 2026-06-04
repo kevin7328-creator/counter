@@ -88,79 +88,57 @@
     </div>
 
     <script>
-        // 🌟 주소 구조를 완벽하게 일치시킴 (데이터가 한 바구니에 담기도록 수정)
-        const DB_URL = "https://mure-counter-default-rtdb.asia-southeast1.firebasedatabase.app/live_data.json";
+        // 매장 전용 절대 겹치지 않는 고유 실시간 통신 채널 주소
+        const TOPIC = "mure_pos_live_counter_channel_2026";
+        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
         let currentCount = 0;
-        let isUpdating = false; 
-        
         const countView = document.getElementById('count-view');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
+        // 주소창 맨 뒤에 ?view 가 있으면 화면에서 버튼들을 완전히 제거
         if (window.location.search.includes('view')) {
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 서버에서 최신 숫자를 실시간으로 뺏어오는 함수
-        function updateCountFromServer() {
-            if (isUpdating) return; 
+        // 🌟 [핵심] 묻지도 따지지도 않고 기기끼리 신호를 실시간으로 강제 동기화하는 스트리밍 연결
+        const eventSource = new EventSource(`${SERVER_URL}/sse`);
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const eventData = JSON.parse(event.data);
+                // 상대방이 보낸 메세지 내용이 숫자 형태라면 즉시 화면을 갱신
+                if (eventData && eventData.message !== undefined && !isNaN(eventData.message)) {
+                    currentCount = Number(eventData.message);
+                    countView.innerText = currentCount;
+                }
+            } catch (e) {
+                console.log("신호 대기 중...");
+            }
+        };
 
-            fetch(DB_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
-                .then(res => res.json())
-                .then(data => {
-                    if (isUpdating) return; 
-                    
-                    // 서버에 저장된 객체에서 count 값을 안전하게 추출
-                    if (data !== null && data !== undefined && data.count !== undefined) {
-                        currentCount = Number(data.count);
-                        countView.innerText = currentCount;
-                    }
-                })
-                .catch(err => console.log("연결 대기 중..."));
-        }
-
-        // 버튼 누를 때 실행
+        // 버튼 누르면 상대방 기기들에 실시간으로 이 숫자로 바꾸라고 신호를 쏨
         function changeCount(amount) {
-            isUpdating = true; 
-            currentCount += amount;
-            countView.innerText = currentCount;
-            
-            sendCountToServer(currentCount);
+            const nextCount = currentCount + amount;
+            sendSignal(nextCount);
         }
 
         // 초기화 버튼
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                isUpdating = true;
-                currentCount = 0;
-                countView.innerText = 0;
-                
-                sendCountToServer(0);
+                sendSignal(0);
             }
         }
 
-        // 서버에 값을 덮어씌우는 함수
-        function sendCountToServer(targetValue) {
-            fetch(DB_URL, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ count: targetValue }) // count 키값에 맞춰 정확히 전송
-            })
-            .then(() => {
-                setTimeout(() => { isUpdating = false; }, 300);
-            })
-            .catch(() => {
-                isUpdating = false;
+        // 전 세계 기기들에 동시 전송하는 함수
+        function sendSignal(value) {
+            fetch(SERVER_URL, {
+                method: 'POST',
+                body: String(value)
             });
         }
-
-        // 켜자마자 실행
-        updateCountFromServer();
-
-        // 0.5초마다 무조건 강제 동기화 수행
-        setInterval(updateCountFromServer, 500);
     </script>
 </body>
 </html>
