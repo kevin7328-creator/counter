@@ -88,7 +88,6 @@
     </div>
 
     <script>
-        // 매장 전용 절대 겹치지 않는 고유 실시간 통신 채널 주소
         const TOPIC = "mure_pos_live_counter_channel_2026";
         const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
@@ -97,19 +96,17 @@
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
-        // 주소창 맨 뒤에 ?view 가 있으면 화면에서 버튼들을 완전히 제거
         if (window.location.search.includes('view')) {
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 🌟 [핵심] 묻지도 따지지도 않고 기기끼리 신호를 실시간으로 강제 동기화하는 스트리밍 연결
+        // 실시간 신호 감지 스트리밍 연결 (0.1초 초고속 연동)
         const eventSource = new EventSource(`${SERVER_URL}/sse`);
         
         eventSource.onmessage = (event) => {
             try {
                 const eventData = JSON.parse(event.data);
-                // 상대방이 보낸 메세지 내용이 숫자 형태라면 즉시 화면을 갱신
                 if (eventData && eventData.message !== undefined && !isNaN(eventData.message)) {
                     currentCount = Number(eventData.message);
                     countView.innerText = currentCount;
@@ -119,26 +116,45 @@
             }
         };
 
-        // 버튼 누르면 상대방 기기들에 실시간으로 이 숫자로 바꾸라고 신호를 쏨
+        // 🌟 [추가] 화면이 켜지자마자 서버에 누적된 마지막 값을 강제로 긁어오는 안전장치
+        function loadLastSignalFromServer() {
+            fetch(`${SERVER_URL}/json?since=all`)
+                .then(res => res.text())
+                .then(text => {
+                    const lines = text.trim().split("\n");
+                    for (let i = lines.length - 1; i >= 0; i--) {
+                        if (!lines[i]) continue;
+                        const data = JSON.parse(lines[i]);
+                        if (data && data.message !== undefined && !isNaN(data.message)) {
+                            currentCount = Number(data.message);
+                            countView.innerText = currentCount;
+                            break; // 가장 최근 마지막 숫자 하나만 찾으면 탈출
+                        }
+                    }
+                })
+                .catch(err => console.log("초기 로딩 대기..."));
+        }
+
         function changeCount(amount) {
             const nextCount = currentCount + amount;
             sendSignal(nextCount);
         }
 
-        // 초기화 버튼
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 sendSignal(0);
             }
         }
 
-        // 전 세계 기기들에 동시 전송하는 함수
         function sendSignal(value) {
             fetch(SERVER_URL, {
                 method: 'POST',
                 body: String(value)
             });
         }
+
+        // 화면 켜지는 순간 바로 실행
+        loadLastSignalFromServer();
     </script>
 </body>
 </html>
