@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>실시간 공유 카운터</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .counter-container { text-align: center; }
+        .number {
+            font-size: 16rem;
+            font-weight: 800;
+            margin: 10px 0;
+            font-variant-numeric: tabular-nums;
+        }
+        .btn-group { display: flex; gap: 25px; justify-content: center; }
+        button {
+            background-color: #1a1a1a;
+            color: white;
+            border: 2px solid #333333;
+            padding: 25px 50px;
+            font-size: 3rem;
+            font-weight: bold;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        button:active { background-color: #444444; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="counter-container">
+        <!-- 화면에 보일 실시간 숫자 -->
+        <div class="number" id="count-view">0</div>
+
+        <!-- 조작 버튼 -->
+        <div class="btn-group" id="controls">
+            <button onclick="changeCount(-1)">-</button>
+            <button onclick="changeCount(1)">+</button>
+        </div>
+    </div>
+
+    <script>
+        // 무료 공용 카운터 데이터 저장소 주소
+        const API_URL = "https://api.counterapi.dev/v1/mure_live_counter/counter";
+        
+        let currentCount = 0;
+        const countView = document.getElementById('count-view');
+        const controls = document.getElementById('controls');
+
+        // 주소창 맨 뒤에 ?view 가 붙어있으면 버튼을 자동으로 숨겨줍니다.
+        if (window.location.search.includes('view')) {
+            controls.classList.add('hidden');
+        }
+
+        // 서버에서 실시간으로 최신 숫자를 가져오는 함수
+        function updateCountFromServer() {
+            fetch(API_URL)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.count !== undefined) {
+                        currentCount = data.count;
+                        countView.innerText = currentCount;
+                    }
+                })
+                .catch(err => console.log("연결 대기 중..."));
+        }
+
+        // 버튼을 눌렀을 때 숫자를 변경하는 함수
+        function changeCount(amount) {
+            currentCount += amount;
+            countView.innerText = currentCount;
+
+            const action = amount === 1 ? '/up' : '/down';
+            fetch(API_URL + action)
+                .then(res => res.json())
+                .then(data => {
+                    if(data && data.count !== undefined) {
+                        currentCount = data.count;
+                        countView.innerText = currentCount;
+                    }
+                });
+        }
+
+        // 초기화 및 1초마다 자동 동기화
+        updateCountFromServer();
+        setInterval(updateCountFromServer, 1000);
+    </script>
+</body>
+</html>
