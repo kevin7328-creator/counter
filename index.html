@@ -88,7 +88,7 @@
     </div>
 
     <script>
-        // 구글 파이어베이스 전용 영구 무료 데이터베이스 주소 (절대 안 터짐)
+        // 전용 실시간 데이터베이스 주소
         const DB_URL = "https://mure-counter-default-rtdb.asia-southeast1.firebasedatabase.app/counter.json";
         
         let currentCount = 0;
@@ -96,33 +96,34 @@
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
-        // 주소창 맨 뒤에 ?view 가 있으면 조작/초기화 버튼 숨김
         if (window.location.search.includes('view')) {
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 서버에서 최신 숫자를 뺏어오는 함수 (사파리 캐시 완전 차단)
+        // 서버에서 최신 숫자를 가져오는 함수
         function updateCountFromServer() {
             fetch(DB_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
                 .then(res => res.json())
                 .then(data => {
-                    if (data !== null && data !== undefined) {
+                    // 서버에 값이 아예 없거나(null) NaN일 경우 강제로 0으로 초기 세팅 수행
+                    if (data === null || data === undefined || isNaN(data)) {
+                        sendCountToServer(0);
+                        currentCount = 0;
+                    } else {
                         currentCount = Number(data);
-                        countView.innerText = currentCount;
                     }
+                    countView.innerText = currentCount;
                 })
                 .catch(err => console.log("서버 연결 대기 중..."));
         }
 
-        // 버튼 누를 때 처리
         function changeCount(amount) {
             currentCount += amount;
             countView.innerText = currentCount;
             sendCountToServer(currentCount);
         }
 
-        // 숫자 0으로 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 currentCount = 0;
@@ -131,7 +132,6 @@
             }
         }
 
-        // 서버에 값을 강제로 저장하는 함수
         function sendCountToServer(targetValue) {
             fetch(DB_URL, {
                 method: "PUT",
@@ -140,10 +140,10 @@
             });
         }
 
-        // 최초 켜자마자 데이터 호출
+        // 구동 즉시 시작
         updateCountFromServer();
 
-        // 0.5초마다 가만히 있어도 강제 동기화 수행
+        // 0.5초마다 자동 실시간 동기화 체크
         setInterval(updateCountFromServer, 500);
     </script>
 </body>
