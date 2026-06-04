@@ -45,10 +45,7 @@
 <body>
 
     <div class="counter-container">
-        <!-- 화면에 보일 실시간 숫자 -->
         <div class="number" id="count-view">0</div>
-
-        <!-- 조작 버튼 -->
         <div class="btn-group" id="controls">
             <button onclick="changeCount(-1)">-</button>
             <button onclick="changeCount(1)">+</button>
@@ -56,32 +53,34 @@
     </div>
 
     <script>
-        // 무료 공용 카운터 데이터 저장소 주소
+        // 무조건 데이터가 새로고침되도록 주소 뒤에 난수를 붙이는 무정지 시스템
         const API_URL = "https://api.counterapi.dev/v1/mure_live_counter/counter";
         
         let currentCount = 0;
         const countView = document.getElementById('count-view');
         const controls = document.getElementById('controls');
 
-        // 주소창 맨 뒤에 ?view 가 붙어있으면 버튼을 자동으로 숨겨줍니다.
         if (window.location.search.includes('view')) {
             controls.classList.add('hidden');
         }
 
-        // 서버에서 실시간으로 최신 숫자를 가져오는 함수
+        // 브라우저 캐시를 무시하고 무조건 서버에서 강제로 긁어오는 함수
         function updateCountFromServer() {
-            fetch(API_URL)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.count !== undefined) {
-                        currentCount = data.count;
-                        countView.innerText = currentCount;
-                    }
-                })
-                .catch(err => console.log("연결 대기 중..."));
+            // 주소창 뒤에 실시간 시간을 붙여 사파리가 과거 데이터를 재탕하지 못하게 막음 (캐시 파괴)
+            fetch(API_URL + "?nocache=" + new Date().getTime(), {
+                method: "GET",
+                headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.count !== undefined) {
+                    currentCount = data.count;
+                    countView.innerText = currentCount;
+                }
+            })
+            .catch(err => console.log("재연결 중..."));
         }
 
-        // 버튼을 눌렀을 때 숫자를 변경하는 함수
         function changeCount(amount) {
             currentCount += amount;
             countView.innerText = currentCount;
@@ -97,9 +96,11 @@
                 });
         }
 
-        // 초기화 및 1초마다 자동 동기화
+        // 처음 켤 때 실행
         updateCountFromServer();
-        setInterval(updateCountFromServer, 1000);
+
+        // 🌟 동기화 속도를 0.5초(500ms)로 대폭 단축하여 실시간 감시 작동
+        setInterval(updateCountFromServer, 500);
     </script>
 </body>
 </html>
