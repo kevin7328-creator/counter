@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>실시간 공유 카운터</title>
+    <title>MURÉ 실시간 카운터</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -52,7 +52,6 @@
         button:active {
             background-color: #444444;
         }
-        /* 초기화 버튼 전용 디자인 (아래로 완전히 떨어뜨림) */
         .reset-container {
             margin-bottom: 50px;
         }
@@ -64,6 +63,7 @@
             font-size: 1.2rem;
             font-weight: normal;
             border-radius: 10px;
+            cursor: pointer;
         }
         .btn-reset:active {
             background-color: #331111;
@@ -75,7 +75,6 @@
 </head>
 <body>
 
-    <!-- 중앙 카운터 영역 -->
     <div class="counter-container">
         <div class="number" id="count-view">0</div>
         <div class="btn-group" id="controls">
@@ -84,50 +83,46 @@
         </div>
     </div>
 
-    <!-- 하단 초기화 영역 -->
     <div class="reset-container" id="reset-area">
         <button class="btn-reset" onclick="resetCount()">숫자 초기화</button>
     </div>
 
     <script>
-        // 전 세계에서 가장 안정적인 초고속 공용 NoSQL 데이터베이스 주소 활용
-        const API_URL = "https://api.restfulapi.dev/objects/ff8081819328c34e019328c34e000000";
+        // 구글 파이어베이스 전용 영구 무료 데이터베이스 주소 (절대 안 터짐)
+        const DB_URL = "https://mure-counter-default-rtdb.asia-southeast1.firebasedatabase.app/counter.json";
         
         let currentCount = 0;
         const countView = document.getElementById('count-view');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
-        // 주소창 맨 뒤에 ?view 가 있으면 조작 버튼과 초기화 버튼을 완벽하게 숨김
+        // 주소창 맨 뒤에 ?view 가 있으면 조작/초기화 버튼 숨김
         if (window.location.search.includes('view')) {
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 서버에서 최신 데이터(값)를 무조건 무정지로 긁어오는 핵심 함수
+        // 서버에서 최신 숫자를 뺏어오는 함수 (사파리 캐시 완전 차단)
         function updateCountFromServer() {
-            fetch(API_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
+            fetch(DB_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
                 .then(res => res.json())
                 .then(data => {
-                    if (data && data.data && data.data.count !== undefined) {
-                        currentCount = Number(data.data.count);
+                    if (data !== null && data !== undefined) {
+                        currentCount = Number(data);
                         countView.innerText = currentCount;
                     }
                 })
-                .catch(() => {
-                    // 서버에 방이 존재하지 않을 때 최초 생성 및 방 개설 프로세스
-                    setupInitialServerRoom();
-                });
+                .catch(err => console.log("서버 연결 대기 중..."));
         }
 
-        // 버튼(+ 또는 -) 누를 때 처리하는 함수
+        // 버튼 누를 때 처리
         function changeCount(amount) {
             currentCount += amount;
             countView.innerText = currentCount;
             sendCountToServer(currentCount);
         }
 
-        // 🌟 완전하게 0으로 밀어버리는 진짜 초기화 함수
+        // 숫자 0으로 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 currentCount = 0;
@@ -136,36 +131,20 @@
             }
         }
 
-        // 현재 숫자를 서버에 강제로 덮어씌워 버리는 핵심 데이터 전송 함수
+        // 서버에 값을 강제로 저장하는 함수
         function sendCountToServer(targetValue) {
-            fetch(API_URL, {
+            fetch(DB_URL, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: "Mure Live Counter Room",
-                    data: { count: targetValue }
-                })
-            }).catch(err => console.log("전송 오류 재시도..."));
-        }
-
-        // 최초 가동 시 서버 방 세팅용
-        function setupInitialServerRoom() {
-            fetch("https://api.restfulapi.dev/objects", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    id: "ff8081819328c34e019328c34e000000",
-                    name: "Mure Live Counter Room",
-                    data: { count: 0 }
-                })
+                body: JSON.stringify(targetValue)
             });
         }
 
-        // 화면 켜자마자 서버 값 불러오기
+        // 최초 켜자마자 데이터 호출
         updateCountFromServer();
 
-        // 🌟 0.4초마다 전광판(?view) 및 상대 화면이 가만히 있어도 실시간으로 감시 및 동기화 수행
-        setInterval(updateCountFromServer, 400);
+        // 0.5초마다 가만히 있어도 강제 동기화 수행
+        setInterval(updateCountFromServer, 500);
     </script>
 </body>
 </html>
