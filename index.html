@@ -120,15 +120,11 @@
     </div>
 
     <script>
-        // 새로운 고유 토픽 이름으로 변경되었습니다. (충돌 방지 강화)
-        const TOPIC = "mure_live_counter_x9k2_7f8d"; 
+        const TOPIC = "mure_pos_live_counter_channel_2026";
         const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
-        // 고유 브라우저 ID 생성 (내가 보낸 신호를 내가 필터링하기 위함)
-        const MY_ID = "DEVICE_" + Math.random().toString(36).substring(2, 9);
-        
+        // 브라우저 메모리에 저장되어 있던 기존 숫자가 있다면 가져오고, 없으면 0으로 시작
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        let sendTimeout = null;
         
         const countView = document.getElementById('count-view');
         const plateArea = document.getElementById('plate-area');
@@ -143,58 +139,41 @@
             resetArea.classList.add('hidden');
         }
 
+        // 초기 화면 설정
         countView.innerText = currentCount;
 
-        // SSE 연결 함수 (네트워크 단절 시 재연결 로직 포함)
-        let eventSource;
-        function connectSSE() {
-            if (eventSource) eventSource.close();
-
-            eventSource = new EventSource(`${SERVER_URL}/sse`);
-            
-            eventSource.onmessage = (event) => {
-                try {
-                    const eventData = JSON.parse(event.data);
-                    if (eventData && eventData.message !== undefined) {
-                        const rawMsg = eventData.message.trim();
-                        
-                        // JSON 데이터 분해 시도
-                        let parsed;
-                        try {
-                            parsed = JSON.parse(rawMsg);
-                        } catch(e) {
-                            // 구버전 호환용 (단순 문자열인 경우)
-                            parsed = { sender: "unknown", type: "SET", val: rawMsg };
+        // 초고속 실시간 연동망 연결
+        const eventSource = new EventSource(`${SERVER_URL}/sse`);
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const eventData = JSON.parse(event.data);
+                if (eventData && eventData.message !== undefined) {
+                    const msg = eventData.message.trim();
+                    
+                    // 1. 새로 들어온 기기가 "지금 몇이냐?" 하고 요청한 경우
+                    if (msg === "REQ_SYNC") {
+                        // 내가 조작 모드라면 내가 가진 최신 숫자를 즉시 쏴줌
+                        if (!isViewMode) {
+                            sendSignal("ANS:" + currentCount);
                         }
-
-                        // 내가 보낸 신호라면 무시 (네트워크 대역폭 및 배터리 절약)
-                        if (parsed.sender === MY_ID) return;
-
-                        // 1. 동기화 요청을 받았을 때
-                        if (parsed.type === "REQ_SYNC") {
-                            if (!isViewMode) {
-                                sendSignal("ANS", currentCount);
-                            }
-                        } 
-                        // 2. 다른 기기의 카운트 변경 신호나 답변을 받았을 때
-                        else if (parsed.type === "SET" || parsed.type === "ANS") {
-                            const targetNum = Number(parsed.val);
-                            if (!isNaN(targetNum)) {
-                                updateLocalAndScreen(targetNum);
-                            }
+                    } 
+                    // 2. 다른 폰이 쏴준 답변 신호를 받았을 때
+                    else if (msg.startsWith("ANS:")) {
+                        const targetNum = msg.split(":")[1];
+                        if (!isNaN(targetNum)) {
+                            updateLocalAndScreen(Number(targetNum));
                         }
+                    } 
+                    // 3. 버튼 클릭으로 인한 일반 숫자 변동일 때
+                    else if (!isNaN(msg) && msg !== "") {
+                        updateLocalAndScreen(Number(msg));
                     }
-                } catch (e) { }
-            };
+                }
+            } catch (e) { }
+        };
 
-            eventSource.onerror = () => {
-                // 연결이 끊어지면 3초 뒤 재연결 시도
-                setTimeout(connectSSE, 3000);
-            };
-        }
-
-        connectSSE();
-
+        // 화면과 브라우저 내장 메모리를 동시에 갱신하는 안전한 함수
         function updateLocalAndScreen(num) {
             currentCount = num;
             countView.innerText = currentCount;
@@ -204,50 +183,36 @@
         // 판수 세팅
         function setPlateCount(targetNumber) {
             updateLocalAndScreen(targetNumber);
-            sendSignalDelayed("SET", targetNumber);
+            sendSignal(targetNumber);
         }
 
         // 미세 조절
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             updateLocalAndScreen(nextCount);
-            sendSignalDelayed("SET", nextCount); // 연타 시 서버 부담을 줄이기 위해 딜레이 전송
+            sendSignal(nextCount);
         }
 
         // 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 updateLocalAndScreen(0);
-                sendSignal("SET", 0);
+                sendSignal(0);
             }
         }
 
-        // 실시간 연타 시 ntfy 차단을 막기 위한 디바운스(Debounce) 전송
-        function sendSignalDelayed(type, value) {
-            if (sendTimeout) clearTimeout(sendTimeout);
-            sendTimeout = setTimeout(() => {
-                sendSignal(type, value);
-            }, 200); // 0.2초 이내의 추가 클릭은 무시하고 최종 값만 전송
-        }
-
-        // 서버 신호 전송 함수
-        function sendSignal(type, value) {
-            const payload = {
-                sender: MY_ID,
-                type: type,
-                val: String(value)
-            };
-
+        // 서버 신호 전송
+        function sendSignal(value) {
             fetch(SERVER_URL, {
                 method: 'POST',
-                body: JSON.stringify(payload)
-            }).catch(err => console.log("전송 실패:", err));
+                body: String(value)
+            });
         }
 
-        // 접속 시 동기화 요청
+        // 🌟 접속하자마자 이미 열려 있는 다른 기기들에게 현재 숫자를 달라고 요청 (새로고침 버그 완벽 차단)
         setTimeout(() => {
-            sendSignal("REQ_SYNC", "");
-        }, 500);
+            sendSignal("REQ_SYNC");
+        }, 300);
     </script>
 </body>
 </html>
