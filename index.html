@@ -215,7 +215,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.3.0</div>
+    <div class="code-version-tag">v1.3.1</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -229,7 +229,7 @@
         const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        if (currentCount > 30) currentCount = 30; // 30 제한 방어코드
+        if (currentCount > 30) currentCount = 30;
         
         let selectedDessertCode = 0; 
         
@@ -260,7 +260,7 @@
                     const rawMsg = eventData.message.toString().trim();
                     
                     if (rawMsg === "REQ_SYNC") {
-                        if (!isViewMode) sendSignal(String(currentCount)); // 무한루프 방지: 카운트 값으로 응답
+                        if (!isViewMode) sendSignal(String(currentCount));
                         return;
                     }
                     
@@ -272,36 +272,30 @@
                     const numData = Number(rawMsg);
                     if (isNaN(numData)) return; 
 
-                    // 1. 대기 카운터 처리 (1 ~ 30) - 절대 알림 팝업 안 뜸
+                    // 1. 대기 카운터 처리 (0 ~ 30 범위일 때만) -> 알림 절대 안 뜸!!
                     if (numData >= 0 && numData <= 30) {
                         currentCount = numData;
                         countView.innerText = currentCount;
                         localStorage.setItem('mure_last_count', currentCount);
                     } 
-                    // 2. 디저트 호출 처리 (4자리 정수 예: 1230, 2130)
-                    else if (numData >= 1130 && numData <= 9230) {
-                        if (!isViewMode) { // 오직 주방 리모트 모드일 때만 작동
-                            const strData = String(numData);
-                            const tableCode = strData.charAt(0);
-                            const dessertCode = strData.charAt(1);
-                            const suffix = strData.substring(2);
+                    // 2. 디저트 호출 처리 (4자리 정수이고, 끝자리가 정확히 '30'으로 끝날 때만) -> 주방(리모트) 알림 팝업 뜸!!
+                    else if (rawMsg.length === 4 && rawMsg.endsWith("30")) {
+                        if (!isViewMode) { // 주방(리모트 모드)일 때만 알림 발생
+                            const tableCode = rawMsg.charAt(0);
+                            const dessertCode = rawMsg.charAt(1);
 
-                            // 사장님 프로토콜 검증: 끝자리가 30으로 끝증하는지 체크
-                            if (suffix === "30") {
-                                const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
-                                const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
-                                
-                                mainBody.classList.add('flashing');
-                                document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
-                                kitchenPopup.style.display = 'flex';
-                            }
+                            const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
+                            const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
+                            
+                            mainBody.classList.add('flashing');
+                            document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
+                            kitchenPopup.style.display = 'flex';
                         }
                     }
                 }
             } catch (e) { }
         };
 
-        // 초기 구동 동기화 핸들링
         let syncTimeout = setTimeout(() => { sendSignal("REQ_SYNC"); }, 500);
 
         function showInlineTables(dessertCode) {
@@ -319,7 +313,7 @@
         function selectTable(tableCode) {
             tableInlineArea.classList.add('hidden');
             
-            // 사장님 정수 조합 프로토콜: [테이블번호][디저트코드]30
+            // 사장님 정수 조합 프로토콜: [테이블번호][디저트코드]30 (예: 1번 젤라또 -> 1130)
             const signalValue = `${tableCode}${selectedDessertCode}30`;
             sendSignal(signalValue);
 
@@ -347,13 +341,13 @@
         }
 
         function setPlateCount(targetNumber) {
-            if (targetNumber > 30) targetNumber = 30; // 30 제한
+            if (targetNumber > 30) targetNumber = 30;
             sendSignal(String(targetNumber));
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
-            if (nextCount >= 0 && nextCount <= 30) { // 0~30 범위 내에서만 전송
+            if (nextCount >= 0 && nextCount <= 30) {
                 sendSignal(String(nextCount));
             }
         }
