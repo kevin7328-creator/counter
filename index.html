@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="ko"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.3.6)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.3.9)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -215,7 +215,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.3.6</div>
+    <div class="code-version-tag">v1.3.9</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -225,8 +225,12 @@
     </div>
 
     <script>
-        const TOPIC = "mure_pos_live_counter_channel_2026";
-        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
+        // 채널을 완전히 이원화하여 신호 간섭 차단
+        const TOPIC_COUNTER = "mure_pos_live_counter_channel_2026";
+        const TOPIC_BELL = "mure_pos_bell_channel_2026";
+        
+        const SERVER_COUNTER_URL = `https://ntfy.sh/${TOPIC_COUNTER}`;
+        const SERVER_BELL_URL = `https://ntfy.sh/${TOPIC_BELL}`;
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         if (currentCount > 30) currentCount = 30;
@@ -242,34 +246,45 @@
         const kitchenPopup = document.getElementById('kitchen-popup');
         const mainBody = document.getElementById('main-body');
 
-        // URL에 ?view가 포함되어 있으면 홀(뷰어) 모드, 없으면 주방 모드
         const isViewMode = window.location.search.includes('view');
 
         if (isViewMode) {
             kitchenArea.classList.add('hidden');
             resetArea.classList.add('hidden');
-            hallArea.remove('hidden'); 
+            hallArea.classList.remove('hidden'); 
         }
         countView.innerText = currentCount;
 
-        // SSE 연결 시작
-        const eventSource = new EventSource(`${SERVER_URL}/sse`);
-        
-        eventSource.onmessage = (event) => {
+        // 1. 카운터 전용 SSE 수신부
+        const counterSource = new EventSource(`${SERVER_COUNTER_URL}/sse`);
+        counterSource.onmessage = (event) => {
             try {
-                const eventData = JSON.parse(event.data);
-                if (!eventData || eventData.event !== "message" || eventData.message === undefined) return;
+                const parsedEvent = JSON.parse(event.data);
+                if (!parsedEvent || parsedEvent.message === undefined) return;
+                const rawMsg = parsedEvent.message.toString().trim();
                 
-                // 불필요한 공백이나 줄바꿈을 완벽히 제거
-                const rawMsg = eventData.message.toString().trim();
-                
-                // 1. 동기화 요청 신호 처리
                 if (rawMsg === "REQ_SYNC") {
-                    if (!isViewMode) sendSignal(String(currentCount));
+                    if (!isViewMode) sendCounterSignal(String(currentCount));
                     return;
                 }
 
-                // 2. 주방 확인 신호 (999)
+                const numData = Number(rawMsg);
+                if (!isNaN(numData) && numData >= 0 && numData <= 30) {
+                    currentCount = numData;
+                    countView.innerText = currentCount;
+                    localStorage.setItem('mure_last_count', currentCount);
+                }
+            } catch (e) { console.error("카운터 수신 에러:", e); }
+        };
+
+        // 2. 호출벨 전용 SSE 수신부 (독립 구동되어 카운터 신호에 절대 간섭받지 않음)
+        const bellSource = new EventSource(`${SERVER_BELL_URL}/sse`);
+        bellSource.onmessage = (event) => {
+            try {
+                const parsedEvent = JSON.parse(event.data);
+                if (!parsedEvent || parsedEvent.message === undefined) return;
+                const rawMsg = parsedEvent.message.toString().trim();
+
                 if (rawMsg === "999") {
                     if (isViewMode) {
                         showHallStatus("✓ 주방에서 확인했습니다.");
@@ -277,14 +292,11 @@
                     return;
                 }
 
-                // 숫자로 안전하게 변환하여 매칭 검사
                 const numData = Number(rawMsg);
                 if (isNaN(numData)) return;
 
-                // 3. 디저트 호출 신호 검사 (100 이상 999 미만 범위의 정수)
                 if (numData >= 100 && numData < 999) {
                     if (!isViewMode) { 
-                        // 예: 101 -> 1번 테이블 젤라또 / 902 -> 바(Bar) 티라미수
                         const tableCode = Math.floor(numData / 100);
                         const dessertCode = numData % 10;
 
@@ -295,25 +307,14 @@
                         document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
                         kitchenPopup.style.display = 'flex';
                     }
-                    return; 
                 }
-
-                // 4. 대기 카운터 신호 검사 (순수 0 ~ 30 범위)
-                if (numData >= 0 && numData <= 30) {
-                    currentCount = numData;
-                    countView.innerText = currentCount;
-                    localStorage.setItem('mure_last_count', currentCount);
-                    return;
-                }
-
-            } catch (e) { console.error("수신 에러 발생:", e); }
+            } catch (e) { console.error("호출벨 수신 에러:", e); }
         };
 
-        // 초기 동기화 요청
-        setTimeout(() => { sendSignal("REQ_SYNC"); }, 500);
+        setTimeout(() => { sendCounterSignal("REQ_SYNC"); }, 500);
 
         function showInlineTables(dessertCode) {
-            selectedDessertCode = dessertCode;
+            selectedDessertCode = Number(dessertCode);
             hallArea.classList.add('hidden');
             tableInlineArea.classList.remove('hidden');
         }
@@ -327,11 +328,13 @@
         function selectTable(tableCode) {
             tableInlineArea.classList.add('hidden');
             
-            // 100의 자리 = 테이블번호, 1의 자리 = 디저트코드 (예: 1번 테이블 젤라또 = 101)
-            const signalValue = (tableCode * 100) + selectedDessertCode;
-            sendSignal(String(signalValue));
+            const targetTable = Number(tableCode);
+            const signalValue = (targetTable * 100) + selectedDessertCode;
+            
+            // 호출벨 전용 채널로 발송
+            sendBellSignal(String(signalValue));
 
-            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
+            const tableName = (targetTable === 9) ? "바(Bar)" : `${targetTable}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
             showHallStatus(`✈ [${tableName} ${dessertName}] 전송 완료`);
         }
@@ -351,32 +354,43 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            sendSignal("999"); // 주방 확인 신호 전송
+            sendBellSignal("999"); 
         }
 
         function setPlateCount(targetNumber) {
-            if (targetNumber > 30) targetNumber = 30;
-            sendSignal(String(targetNumber));
+            const num = Number(targetNumber);
+            if (num > 30) return;
+            sendCounterSignal(String(num));
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             if (nextCount >= 0 && nextCount <= 30) {
-                sendSignal(String(nextCount));
+                sendCounterSignal(String(nextCount));
             }
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendSignal("0");
+                sendCounterSignal("0");
             }
         }
 
-        function sendSignal(value) {
-            fetch(SERVER_URL, { 
-                method: 'POST', 
-                mode: 'no-cors',
-                body: String(value)
-            }).catch(e => {});
+        // 카운터 채널 전송 함수
+        function sendCounterSignal(value) {
+            fetch(SERVER_COUNTER_URL, { 
+                method: 'POST',
+                mode: 'no-cors', 
+                body: String(value).trim()
+            }).catch(e => console.error(e));
+        }
+
+        // 호출벨 채널 전송 함수
+        function sendBellSignal(value) {
+            fetch(SERVER_BELL_URL, { 
+                method: 'POST',
+                mode: 'no-cors', 
+                body: String(value).trim()
+            }).catch(e => console.error(e));
         }
     </script></body></html>
