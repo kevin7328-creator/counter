@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.2)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.3)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.5.2</div>
+    <div class="code-version-tag">v1.5.3</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -231,7 +231,7 @@
     <script>
         const BASE_TOPIC = "mure_pos_live_counter_channel_2026";
         const COUNTER_URL = `https://ntfy.sh/${BASE_TOPIC}_counter`; 
-        const BELL_URL = `https://ntfy.sh/${BASE_TOPIC}_bell`;       
+        const BELL_URL = `https://ntfy.sh/${BASE_TOPIC}_bell`;        
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         if (currentCount > 30) currentCount = 30;
@@ -258,8 +258,19 @@
         }
         countView.innerText = currentCount;
 
+        // 원초적 전송 대신 안전한 전송 함수 정의 (헤더 포함)
+        function safePost(url, payload) {
+            return fetch(url, { 
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                },
+                body: String(payload)
+            }).catch(e => { console.error("전송 에러:", e); });
+        }
+
         function startCounterSSE() {
-            if (sseCounter) sseCounter.close();
+            if (sseCounter) { sseCounter.close(); sseCounter = null; }
             sseCounter = new EventSource(`${COUNTER_URL}/sse`);
             
             sseCounter.onmessage = (event) => {
@@ -269,7 +280,7 @@
                     const rawMsg = eventData.message.toString().trim();
                     
                     if (rawMsg === "REQ_SYNC") {
-                        if (!isViewMode) sendCounterSignal("CNT_" + currentCount);
+                        if (!isViewMode) safePost(COUNTER_URL, "CNT_" + currentCount);
                         return;
                     }
 
@@ -283,11 +294,14 @@
                     }
                 } catch (e) { console.error("카운터 수신 에러:", e); }
             };
-            sseCounter.onerror = () => setTimeout(startCounterSSE, 1500);
+            sseCounter.onerror = () => {
+                if(sseCounter) sseCounter.close();
+                setTimeout(startCounterSSE, 2000);
+            };
         }
 
         function startBellSSE() {
-            if (sseBell) sseBell.close();
+            if (sseBell) { sseBell.close(); sseBell = null; }
             sseBell = new EventSource(`${BELL_URL}/sse`);
             
             sseBell.onmessage = (event) => {
@@ -324,28 +338,32 @@
                     }
                 } catch (e) { console.error("벨 수신 에러:", e); }
             };
-            sseBell.onerror = () => setTimeout(startBellSSE, 1500);
+            sseBell.onerror = () => {
+                if(sseBell) sseBell.close();
+                setTimeout(startBellSSE, 2000);
+            };
         }
 
+        // 초기 구동
         startCounterSSE();
         startBellSSE();
 
+        // 화면 켜지거나 와이파이 재연결 시 강제 초기화 및 싱크 요청
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 startCounterSSE();
                 startBellSSE();
-                setTimeout(() => { fetch(COUNTER_URL, { method: 'POST', body: 'REQ_SYNC' }).catch(e => {}); }, 300);
+                setTimeout(() => { safePost(COUNTER_URL, 'REQ_SYNC'); }, 500);
             }
         });
 
+        // 타이머 감시 (끊김 방지)
         setInterval(() => {
-            if (!sseCounter || sseCounter.readyState === EventSource.CLOSED) startCounterSSE();
-            if (!sseBell || sseBell.readyState === EventSource.CLOSED) startBellSSE();
-        }, 4000);
+            if (!sseCounter || sseCounter.readyState !== 1) startCounterSSE();
+            if (!sseBell || sseBell.readyState !== 1) startBellSSE();
+        }, 5000);
 
-        setTimeout(() => {
-            fetch(COUNTER_URL, { method: 'POST', body: 'REQ_SYNC' }).catch(e => {});
-        }, 500);
+        setTimeout(() => { safePost(COUNTER_URL, 'REQ_SYNC'); }, 600);
 
         function showInlineTables(dessertCode) {
             selectedDessertCode = dessertCode;
@@ -363,11 +381,7 @@
             tableInlineArea.classList.add('hidden');
             const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            // 검열 우회를 위해 헤더를 완전히 지우고 카운터와 동일하게 원초적 전송
-            fetch(BELL_URL, { 
-                method: 'POST', 
-                body: String(signalValue)
-            }).catch(e => { console.error("벨 전송 실패:", e); });
+            safePost(BELL_URL, signalValue);
 
             const tableName = (tableCode === 9 || tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
@@ -389,32 +403,25 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            fetch(BELL_URL, { method: 'POST', body: '99999' }).catch(e => {});
+            safePost(BELL_URL, '99999');
         }
 
         function setPlateCount(targetNumber) {
             if (targetNumber > 30) targetNumber = 30;
-            sendCounterSignal("CNT_" + targetNumber);
+            safePost(COUNTER_URL, "CNT_" + targetNumber);
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             if (nextCount >= 0 && nextCount <= 30) {
-                sendCounterSignal("CNT_" + nextCount);
+                safePost(COUNTER_URL, "CNT_" + nextCount);
             }
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendCounterSignal("CNT_0");
+                safePost(COUNTER_URL, "CNT_0");
             }
-        }
-
-        function sendCounterSignal(value) {
-            fetch(COUNTER_URL, { 
-                method: 'POST', 
-                body: String(value)
-            }).catch(e => { console.error("카운터 전송 실패:", e); });
         }
     </script>
 </body>
