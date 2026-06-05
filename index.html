@@ -146,4 +146,254 @@
             z-index: 1000;
         }
         .kitchen-content { text-align: center; width: 90%; }
-        .kitchen-msg { font-size:
+        .kitchen-msg { font-size: 4rem; font-weight: 900; color: #ff9f0a; margin-bottom: 40px; line-height: 1.4; }
+        .btn-confirm { background-color: #34c759; color: white; font-size: 3rem; padding: 20px 80px; border: none; }
+        
+        @keyframes flash {
+            0% { background-color: #000; }
+            50% { background-color: #ff453a; }
+            100% { background-color: #000; }
+        }
+        .flashing { animation: flash 0.6s infinite; }
+        
+        .reset-container { position: fixed; bottom: 10px; left: 10px; margin: 0; z-index: 5; }
+        .btn-reset { background-color: #111111; color: #ff4d4d; border: 1px solid #222222; padding: 8px 18px; font-size: 1rem; border-radius: 8px; }
+        
+        /* 🏷️ 우측 하단 AI 코드 버전 고정 표시 */
+        .code-version-tag {
+            position: fixed;
+            bottom: 12px;
+            right: 15px;
+            font-size: 0.8rem;
+            color: #555555;
+            font-family: monospace;
+            z-index: 5;
+            background-color: rgba(20, 20, 20, 0.8);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #222222;
+            pointer-events: none;
+        }
+        
+        .hidden { display: none !important; }
+    </style></head><body id="main-body">
+
+    <div class="counter-container">
+        <div class="number-zone">
+            <div class="number" id="count-view">0</div>
+        </div>
+        
+        <div class="control-zone">
+            <div id="kitchen-area" style="width:100%; display:flex; flex-direction:column; align-items:center;">
+                <div class="plate-group">
+                    <button class="btn-plate" onclick="setPlateCount(6)">1판(6)</button>
+                    <button class="btn-plate" onclick="setPlateCount(12)">2판(12)</button>
+                    <button class="btn-plate" onclick="setPlateCount(18)">3판(18)</button>
+                    <button class="btn-plate" onclick="setPlateCount(24)">4판(24)</button>
+                </div>
+                <div class="btn-group">
+                    <button class="btn-control" onclick="changeCount(-1)">-</button>
+                    <button class="btn-control" onclick="changeCount(1)">+</button>
+                </div>
+            </div>
+
+            <div id="hall-area" class="hall-group hidden">
+                <button class="btn-dessert" onclick="showInlineTables('🍨 젤라또')">🍨 젤라또</button>
+                <button class="btn-dessert" onclick="showInlineTables('🍰 티라미수')">🍰 티라미수</button>
+            </div>
+
+            <div id="table-inline-area" class="table-inline-grid hidden">
+                <button class="btn-table" onclick="selectTable('1번')">1번</button>
+                <button class="btn-table" onclick="selectTable('2번')">2번</button>
+                <button class="btn-table" onclick="selectTable('3번')">3번</button>
+                <button class="btn-table" onclick="selectTable('4번')">4번</button>
+                <button class="btn-table" onclick="selectTable('5번')">5번</button>
+                <button class="btn-table" onclick="selectTable('6번')">6번</button>
+                <button class="btn-table" onclick="selectTable('7번')">7번</button>
+                <button class="btn-table" onclick="selectTable('8번')">8번</button>
+                <button class="btn-table" onclick="selectTable('바')">바(Bar)</button>
+                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 디저트 다시 고르기</button>
+            </div>
+
+            <div id="status-message-box" class="status-msg hidden"></div>
+        </div>
+    </div>
+
+    <div class="reset-container" id="reset-area">
+        <button class="btn-reset" onclick="resetCount()">초기화</button>
+    </div>
+
+    <div class="code-version-tag">v1.0.4</div>
+
+    <div class="kitchen-alert" id="kitchen-popup">
+        <div class="kitchen-content">
+            <div class="kitchen-msg" id="kitchen-msg-text">호출 들어옴</div>
+            <button class="btn-confirm" onclick="dismissKitchenAlert()">주방 확인 완료</button>
+        </div>
+    </div>
+
+    <script>
+        const TOPIC = "mure_pos_live_counter_channel_2026";
+        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
+        
+        let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
+        let selectedDessert = ""; 
+        let lastReceivedTable = ""; 
+        let lastReceivedDessert = "";
+
+        const countView = document.getElementById('count-view');
+        const kitchenArea = document.getElementById('kitchen-area');
+        const hallArea = document.getElementById('hall-area');
+        const tableInlineArea = document.getElementById('table-inline-area');
+        const resetArea = document.getElementById('reset-area');
+        const statusMessageBox = document.getElementById('status-message-box');
+        const kitchenPopup = document.getElementById('kitchen-popup');
+        const mainBody = document.getElementById('main-body');
+
+        const isViewMode = window.location.search.includes('view');
+
+        if (isViewMode) {
+            kitchenArea.classList.add('hidden');
+            resetArea.classList.add('hidden');
+            hallArea.classList.remove('hidden'); 
+        }
+        countView.innerText = currentCount;
+
+        // 실시간 스트림 연동부
+        const eventSource = new EventSource(`${SERVER_URL}/sse`);
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const eventData = JSON.parse(event.data);
+                if (eventData && eventData.event === "message" && eventData.message !== undefined) {
+                    // 수신된 메시지를 안전하게 한글/이모지로 복호화(디코딩)
+                    const msg = decodeURIComponent(eventData.message.trim());
+                    
+                    if (msg === "REQ_SYNC") {
+                        if (!isViewMode) sendQuietSignal("ANS:" + currentCount);
+                    } 
+                    else if (msg.startsWith("ANS:")) {
+                        const targetNum = msg.split(":")[1];
+                        if (!isNaN(targetNum) && targetNum !== "") updateLocalAndScreen(Number(targetNum));
+                    } 
+                    // 순수 숫자인지 엄격히 검사 (공백이나 텍스트가 섞인 것 필터링)
+                    else if (!isNaN(msg) && msg.trim() !== "") {
+                        updateLocalAndScreen(Number(msg));
+                    } 
+                    else if (msg.startsWith("CALL:")) {
+                        const parts = msg.split(":");
+                        const dessert = parts[1];
+                        const table = parts[2];
+
+                        if (!isViewMode) { 
+                            lastReceivedDessert = dessert;
+                            lastReceivedTable = table;
+                            
+                            mainBody.classList.add('flashing');
+                            document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${table} 테이블]<br><br><span style="color:#30b0ff;">${dessert}</span> 준비해주세요!`;
+                            kitchenPopup.style.display = 'flex';
+                        }
+                    }
+                    else if (msg.startsWith("KITCHEN_DONE:")) {
+                        const parts = msg.split(":");
+                        const dessert = parts[1];
+                        const table = parts[2];
+
+                        if (isViewMode) {
+                            showHallStatus(`✓ 주방에서 [${table} ${dessert}] 확인했습니다.`);
+                        }
+                    }
+                }
+            } catch (e) { }
+        };
+
+        setTimeout(() => { sendQuietSignal("REQ_SYNC"); }, 400);
+
+        function showInlineTables(dessertName) {
+            selectedDessert = dessertName;
+            hallArea.classList.add('hidden');
+            tableInlineArea.classList.remove('hidden');
+        }
+
+        function cancelTableSelect() {
+            tableInlineArea.classList.add('hidden');
+            selectedDessert = "";
+            hallArea.classList.remove('hidden');
+        }
+
+        function selectTable(tableName) {
+            tableInlineArea.classList.add('hidden');
+            const signalValue = `CALL:${selectedDessert}:${tableName}`;
+            
+            // 보낼 신호 데이터를 안전하게 변환하여 전송
+            sendQuietSignal(signalValue);
+            sendLoudSignal(signalValue);
+
+            showHallStatus(`✈ [${tableName} ${selectedDessert}] 전송 완료`);
+        }
+
+        function showHallStatus(text) {
+            hallArea.classList.add('hidden');
+            tableInlineArea.classList.add('hidden');
+            statusMessageBox.innerText = text;
+            statusMessageBox.classList.remove('hidden');
+
+            setTimeout(() => {
+                statusMessageBox.classList.add('hidden');
+                hallArea.classList.remove('hidden');
+            }, 1000);
+        }
+
+        function updateLocalAndScreen(num) {
+            currentCount = num;
+            countView.innerText = currentCount;
+            localStorage.setItem('mure_last_count', currentCount);
+        }
+
+        function dismissKitchenAlert() {
+            kitchenPopup.style.display = 'none';
+            mainBody.classList.remove('flashing');
+            sendQuietSignal(`KITCHEN_DONE:${lastReceivedDessert}:${lastReceivedTable}`);
+        }
+
+        function setPlateCount(targetNumber) {
+            updateLocalAndScreen(targetNumber);
+            sendQuietSignal(targetNumber);
+        }
+
+        function changeCount(amount) {
+            const nextCount = Number(currentCount) + Number(amount);
+            updateLocalAndScreen(nextCount);
+            sendQuietSignal(nextCount);
+        }
+
+        function resetCount() {
+            if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
+                updateLocalAndScreen(0);
+                sendQuietSignal(0);
+            }
+        }
+
+        // 🌟 데이터를 안전한 영문/숫자 형태(encodeURIComponent)로 변환해 쏴주는 무소음 전송함수
+        function sendQuietSignal(value) {
+            const safeValue = encodeURIComponent(String(value));
+            fetch(SERVER_URL, { 
+                method: 'POST', 
+                mode: 'no-cors',
+                body: safeValue 
+            }).catch(e => {});
+        }
+
+        // 🌟 상단 팝업 알림용 푸시 전송함수에도 동일하게 인코딩 적용
+        function sendLoudSignal(value) {
+            const safeValue = encodeURIComponent(String(value));
+            const title = encodeURIComponent("🧁 MURE 디저트 호출");
+            const urlWithParams = `${SERVER_URL}?t=${title}&p=5&ta=bell`;
+            
+            fetch(urlWithParams, { 
+                method: 'POST', 
+                mode: 'no-cors',
+                body: safeValue 
+            }).catch(e => {});
+        }
+    </script></body></html>
