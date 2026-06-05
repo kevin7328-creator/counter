@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.4.7)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.0)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.4.7</div>
+    <div class="code-version-tag">v1.5.0</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -229,14 +229,17 @@
     </div>
 
     <script>
-        const TOPIC = "mure_pos_live_counter_channel_2026";
-        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
+        // 💡 [채널 분리 핵심] 
+        const BASE_TOPIC = "mure_pos_live_counter_channel_2026";
+        const COUNTER_URL = `https://ntfy.sh/${BASE_TOPIC}_counter`; // 화면 동기화용 (폰/워치 등록 X)
+        const BELL_URL = `https://ntfy.sh/${BASE_TOPIC}_bell`;       // 디저트 호출용 (폰/워치 필수 등록 🔔)
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         if (currentCount > 30) currentCount = 30;
         
         let selectedDessertCode = 0; 
-        let eventSource = null;
+        let sseCounter = null;
+        let sseBell = null;
         
         const countView = document.getElementById('count-view');
         const kitchenArea = document.getElementById('kitchen-area');
@@ -256,25 +259,46 @@
         }
         countView.innerText = currentCount;
 
-        function startSSEConnection() {
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            eventSource = new EventSource(`${SERVER_URL}/sse`);
+        // 1. 카운터 채널 SSE 연결 (주방-홀 상시 동기화)
+        function startCounterSSE() {
+            if (sseCounter) sseCounter.close();
+            sseCounter = new EventSource(`${COUNTER_URL}/sse`);
             
-            eventSource.onmessage = (event) => {
+            sseCounter.onmessage = (event) => {
                 try {
                     const eventData = JSON.parse(event.data);
                     if (!eventData || eventData.event !== "message" || eventData.message === undefined) return;
-                    
                     const rawMsg = eventData.message.toString().trim();
                     
                     if (rawMsg === "REQ_SYNC") {
-                        if (!isViewMode) sendSignal("CNT_" + currentCount);
+                        if (!isViewMode) sendCounterSignal("CNT_" + currentCount);
                         return;
                     }
 
+                    if (rawMsg.startsWith("CNT_")) {
+                        const numData = Number(rawMsg.replace("CNT_", ""));
+                        if (!isNaN(numData) && numData >= 0 && numData <= 30) {
+                            currentCount = numData;
+                            countView.innerText = currentCount;
+                            localStorage.setItem('mure_last_count', currentCount);
+                        }
+                    }
+                } catch (e) { console.error("카운터 수신 에러:", e); }
+            };
+            sseCounter.onerror = () => setTimeout(startCounterSSE, 1000);
+        }
+
+        // 2. 디저트 벨 채널 SSE 연결 (호출 및 확인 연동)
+        function startBellSSE() {
+            if (sseBell) sseBell.close();
+            sseBell = new EventSource(`${BELL_URL}/sse`);
+            
+            sseBell.onmessage = (event) => {
+                try {
+                    const eventData = JSON.parse(event.data);
+                    if (!eventData || eventData.event !== "message" || eventData.message === undefined) return;
+                    const rawMsg = eventData.message.toString().trim();
+                    
                     if (rawMsg === "99999") {
                         if (isViewMode) {
                             showHallStatus("✓ 주방에서 확인했습니다.");
@@ -285,23 +309,9 @@
                         return;
                     }
 
-                    // 1. 카운터 신호 수신 판별
-                    if (rawMsg.startsWith("CNT_")) {
-                        const numStr = rawMsg.replace("CNT_", "");
-                        const numData = Number(numStr);
-                        if (!isNaN(numData) && numData >= 0 && numData <= 30) {
-                            currentCount = numData;
-                            countView.innerText = currentCount;
-                            localStorage.setItem('mure_last_count', currentCount);
-                        }
-                        return;
-                    }
-
-                    // 2. 디저트 신호 수신 판별 (원래 오리지널 수신 규격 유지)
                     if (rawMsg.startsWith("DSS_")) {
                         if (!isViewMode) { 
                             const codeStr = rawMsg.replace("DSS_", ""); 
-                            
                             if (/^[1-9][1-2]30$/.test(codeStr)) {
                                 const tableCode = codeStr.charAt(0);
                                 const dessertCode = codeStr.charAt(1);
@@ -309,31 +319,31 @@
                                 const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
                                 const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
                                 
-                                // 비프음 없이 시각적 효과(깜빡임 + 대형 팝업)만 가동
                                 mainBody.classList.add('flashing');
                                 document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
                                 kitchenPopup.style.display = 'flex';
                             }
                         }
-                        return; 
                     }
-
-                } catch (e) { console.error("수신 에러:", e); }
+                } catch (e) { console.error("벨 수신 에러:", e); }
             };
-
-            eventSource.onerror = () => {
-                setTimeout(startSSEConnection, 1000);
-            };
+            sseBell.onerror = () => setTimeout(startBellSSE, 1000);
         }
 
-        startSSEConnection();
+        // 초기 연결 실행
+        startCounterSSE();
+        startBellSSE();
+
+        // 5초 간격 연결 안전장치
         setInterval(() => {
-            if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
-                startSSEConnection();
-            }
+            if (!sseCounter || sseCounter.readyState === EventSource.CLOSED) startCounterSSE();
+            if (!sseBell || sseBell.readyState === EventSource.CLOSED) startBellSSE();
         }, 5000);
 
-        setTimeout(() => { sendSignal("REQ_SYNC"); }, 500);
+        // 최초 접속 시 동기화 요청
+        setTimeout(() => {
+            fetch(COUNTER_URL, { method: 'POST', body: 'REQ_SYNC' }).catch(e => {});
+        }, 500);
 
         function showInlineTables(dessertCode) {
             selectedDessertCode = dessertCode;
@@ -347,12 +357,19 @@
             hallArea.classList.remove('hidden');
         }
 
+        // 🚨 [디저트 벨 전송] 오직 벨 채널로만 전송 -> 폰/워치 팝업 즉각 발생
         function selectTable(tableCode) {
             tableInlineArea.classList.add('hidden');
             const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            // 디저트 호출 시 알림이 폰과 워치로 가도록 전송 방식 변경
-            sendDessertCallSignal(signalValue, tableCode, selectedDessertCode);
+            fetch(BELL_URL, { 
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Title': 'MURÉ 디저트 호출벨'
+                },
+                body: String(signalValue)
+            }).catch(e => { console.error("전송 실패:", e); });
 
             const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
@@ -374,55 +391,35 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            sendSignal("99999"); 
+            // 벨 확인 신호 전송
+            fetch(BELL_URL, { method: 'POST', body: '99999' }).catch(e => {});
         }
 
         function setPlateCount(targetNumber) {
             if (targetNumber > 30) targetNumber = 30;
-            sendSignal("CNT_" + targetNumber);
+            sendCounterSignal("CNT_" + targetNumber);
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             if (nextCount >= 0 && nextCount <= 30) {
-                sendSignal("CNT_" + nextCount);
+                sendCounterSignal("CNT_" + nextCount);
             }
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendSignal("CNT_0");
+                sendCounterSignal("CNT_0");
             }
         }
 
-        // 일반 데이터 싱크용 전송부 (카운터 등 백그라운드용)
-        function sendSignal(value) {
-            fetch(SERVER_URL, { 
+        // 🚨 [카운터 데이터 전송] 복잡한 헤더 없이 순수하게 카운터 전용 채널로만 쏩니다.
+        function sendCounterSignal(value) {
+            fetch(COUNTER_URL, { 
                 method: 'POST', 
-                headers: {
-                    'Content-Type': 'text/plain; charset=utf-8',
-                    'X-Priority': 'min',  // 단순 데이터 동기화는 푸시를 발생시키지 않음
-                    'X-Cache': 'no'
-                },
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' },
                 body: String(value)
             }).catch(e => { console.error("전송 실패:", e); });
-        }
-
-        // 🚨 디저트 호출 전용 푸시 활성화 전송 엔진
-        function sendDessertCallSignal(value, tableCode, dessertCode) {
-            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
-            const dessertName = (dessertCode === 1) ? "젤라또" : "티라미수";
-            
-            fetch(SERVER_URL, { 
-                method: 'POST', 
-                headers: {
-                    'Content-Type': 'text/plain; charset=utf-8',
-                    'X-Title': `MURÉ 디저트 호출`, // 폰/워치 상단에 깔끔하게 뜰 타이틀
-                    'X-Message': `🔔 [${tableName}] ${dessertName} 준비해주세요!`, // 워치에 찍힐 가독성 좋은 메시지
-                    'X-Cache': 'no' // 즉각적인 SSE 반응용 (X-Priority 헤더는 완전 제거하여 푸시 정상화)
-                },
-                body: String(value) // 오리지널 규격(DSS_X_X_30) 데이터도 함께 실어 전송
-            }).catch(e => { console.error("호출 전송 실패:", e); });
         }
     </script>
 </body>
