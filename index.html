@@ -27,7 +27,6 @@
             width: 100%;
             box-sizing: border-box;
         }
-        /* 상단 대기 숫자 영역 */
         .number-zone {
             height: 60vh;
             display: flex;
@@ -41,7 +40,6 @@
             font-variant-numeric: tabular-nums;
             line-height: 1;
         }
-        /* 하단 제어 영역 */
         .control-zone {
             height: 35vh;
             width: 100%;
@@ -80,7 +78,6 @@
             font-size: 3rem;
             flex: 1;
         }
-        /* 디저트 메뉴 버튼 스타일 */
         .hall-group {
             display: flex;
             gap: 20px;
@@ -96,7 +93,6 @@
             background-color: #1c1c1e;
             color: #30b0ff;
         }
-        /* 하단 고정형 테이블 번호판 */
         .table-inline-grid {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -111,7 +107,6 @@
             padding: 18px 0;
             font-size: 1.2rem;
         }
-        /* 디저트를 잘못 골랐을 때 되돌아가는 전용 취소 버튼 */
         .btn-cancel {
             background-color: #ff453a;
             color: #fff;
@@ -121,7 +116,6 @@
             font-size: 1.2rem;
             margin-top: 5px;
         }
-        /* 하단 안내문구 상자 */
         .status-msg {
             font-size: 1.5rem;
             font-weight: bold;
@@ -135,7 +129,6 @@
             max-width: 450px;
             box-sizing: border-box;
         }
-        /* 주방용 호출 알림 팝업 (폰 전용) */
         .kitchen-alert {
             display: none;
             position: fixed;
@@ -159,7 +152,6 @@
         .reset-container { position: fixed; bottom: 10px; left: 10px; margin: 0; z-index: 5; }
         .btn-reset { background-color: #111111; color: #ff4d4d; border: 1px solid #222222; padding: 8px 18px; font-size: 1rem; border-radius: 8px; }
         
-        /* 우측 하단 AI 코드 버전 고정 표시 */
         .code-version-tag {
             position: fixed;
             bottom: 12px;
@@ -223,7 +215,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.1.0</div>
+    <div class="code-version-tag">v1.1.2</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -237,7 +229,7 @@
         const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        let selectedDessertCode = 0; // 1: 젤라또, 2: 티라미수
+        let selectedDessertCode = 0; 
         
         const countView = document.getElementById('count-view');
         const kitchenArea = document.getElementById('kitchen-area');
@@ -248,7 +240,6 @@
         const kitchenPopup = document.getElementById('kitchen-popup');
         const mainBody = document.getElementById('main-body');
 
-        // URL에 ?view 가 포함되어 있으면 홀(발신) 모드로 변신
         const isViewMode = window.location.search.includes('view');
 
         if (isViewMode) {
@@ -269,46 +260,46 @@
                     
                     // 1. 동기화 요청 처리
                     if (rawMsg === "REQ_SYNC") {
-                        if (!isViewMode) sendSignal(currentCount);
+                        if (!isViewMode) sendSignal(String(currentCount));
                         return;
                     }
                     
-                    const numData = Number(rawMsg);
-                    if (isNaN(numData)) return; // 숫자가 아니면 차단
-
                     // 2. 주방 확인 완료 신호 (999) 처리
-                    if (numData === 999) {
+                    if (rawMsg === "999") {
                         if (isViewMode) {
                             showHallStatus("✓ 주방에서 확인했습니다.");
                         }
                         return;
                     }
 
-                    // 3. 소수점 데이터 처리 (디저트 호출 프로토콜)
-                    if (!Number.isInteger(numData)) {
-                        if (!isViewMode) { // 주방 리모트 모드일 때만 팝업 실행
-                            const tableCode = Math.floor(numData);
-                            const dessertCode = Math.round((numData - tableCode) * 10);
+                    // 3. 소수점 확인 (디저트 호출 프로토콜) - 문자열에 점(.)이 있는지로 확실하게 판단
+                    if (rawMsg.includes('.')) {
+                        if (!isViewMode) { // 오직 [주방 리모트 화면] 일때만 팝업 실행!
+                            const parts = rawMsg.split('.');
+                            const tableCode = parts[0];
+                            const dessertCode = parts[1];
                             
-                            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
-                            const dessertName = (dessertCode === 1) ? "🍨 젤라또" : "🍰 티라미수";
+                            const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
+                            const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
                             
                             mainBody.classList.add('flashing');
                             document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
                             kitchenPopup.style.display = 'flex';
                         }
                     } 
-                    // 4. 일반 정수 데이터 처리 (카운터 동기화)
+                    // 4. 소수점이 없는 일반 정수 (순수 대기 카운터 숫자 동기화)
                     else {
-                        currentCount = numData;
-                        countView.innerText = currentCount;
-                        localStorage.setItem('mure_last_count', currentCount);
+                        const numData = Number(rawMsg);
+                        if (!isNaN(numData)) {
+                            currentCount = numData;
+                            countView.innerText = currentCount;
+                            localStorage.setItem('mure_last_count', currentCount);
+                        }
                     }
                 }
             } catch (e) { }
         };
 
-        // 초기 구동 시 주방 화면과 카운터 숫자 동기화 요청
         setTimeout(() => { sendSignal("REQ_SYNC"); }, 400);
 
         function showInlineTables(dessertCode) {
@@ -323,11 +314,10 @@
             hallArea.classList.remove('hidden');
         }
 
-        // 홀 태블릿에서 테이블 선택 시 소수점 코드 조합하여 전송
         function selectTable(tableCode) {
             tableInlineArea.classList.add('hidden');
             
-            // 프로토콜 조합 (예: 3번 테이블 + 젤라또(1) = 3.1)
+            // 점(.)을 찍어 문자로 확실하게 조합 (예: "3.1")
             const signalValue = `${tableCode}.${selectedDessertCode}`;
             sendSignal(signalValue);
 
@@ -348,29 +338,27 @@
             }, 1500);
         }
 
-        // 주방 확인 완료 버튼 클릭 시
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            sendSignal(999); // 999 코드를 보내 홀 화면 알림 해제
+            sendSignal("999"); 
         }
 
         function setPlateCount(targetNumber) {
-            sendSignal(targetNumber);
+            sendSignal(String(targetNumber));
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
-            sendSignal(nextCount);
+            sendSignal(String(nextCount));
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendSignal(0);
+                sendSignal("0");
             }
         }
 
-        // [단일화된 초경량 전송 함수] - 순수 숫자만 보내므로 인코딩도 불필요하며 공유기가 차단하지 않음
         function sendSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
