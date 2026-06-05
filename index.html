@@ -1,7 +1,9 @@
-<!DOCTYPE html><html lang="ko"><head>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.4.6)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.4.7)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -168,7 +170,9 @@
         }
         
         .hidden { display: none !important; }
-    </style></head><body id="main-body">
+    </style>
+</head>
+<body id="main-body">
 
     <div class="counter-container">
         <div class="number-zone">
@@ -215,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.4.6</div>
+    <div class="code-version-tag">v1.4.7</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -233,8 +237,6 @@
         
         let selectedDessertCode = 0; 
         let eventSource = null;
-        let audioCtx = null;
-        let beepInterval = null;
         
         const countView = document.getElementById('count-view');
         const kitchenArea = document.getElementById('kitchen-area');
@@ -253,40 +255,6 @@
             hallArea.classList.remove('hidden'); 
         }
         countView.innerText = currentCount;
-
-        window.addEventListener('click', () => {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-        }, { once: true });
-
-        function triggerBeep() {
-            if (!audioCtx) return;
-            try {
-                let osc = audioCtx.createOscillator();
-                let gain = audioCtx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.15);
-            } catch (e) {}
-        }
-
-        function startBeeping() {
-            stopBeeping();
-            triggerBeep();
-            beepInterval = setInterval(triggerBeep, 1000);
-        }
-
-        function stopBeeping() {
-            if (beepInterval) {
-                clearInterval(beepInterval);
-                beepInterval = null;
-            }
-        }
 
         function startSSEConnection() {
             if (eventSource) {
@@ -313,7 +281,6 @@
                         } else {
                             kitchenPopup.style.display = 'none';
                             mainBody.classList.remove('flashing');
-                            stopBeeping();
                         }
                         return;
                     }
@@ -330,19 +297,23 @@
                         return;
                     }
 
-                    // 2. [v1.4.6 핵심 변경] 오리지널 순수 4자리 숫자 프로토콜 완벽 해석 법칙
-                    if (/^[1-9][1-2]30$/.test(rawMsg)) {
+                    // 2. 디저트 신호 수신 판별 (원래 오리지널 수신 규격 유지)
+                    if (rawMsg.startsWith("DSS_")) {
                         if (!isViewMode) { 
-                            const tableCode = rawMsg.charAt(0);
-                            const dessertCode = rawMsg.charAt(1);
-
-                            const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
-                            const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
+                            const codeStr = rawMsg.replace("DSS_", ""); 
                             
-                            mainBody.classList.add('flashing');
-                            document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
-                            kitchenPopup.style.display = 'flex';
-                            startBeeping();
+                            if (/^[1-9][1-2]30$/.test(codeStr)) {
+                                const tableCode = codeStr.charAt(0);
+                                const dessertCode = codeStr.charAt(1);
+
+                                const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
+                                const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
+                                
+                                // 비프음 없이 시각적 효과(깜빡임 + 대형 팝업)만 가동
+                                mainBody.classList.add('flashing');
+                                document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
+                                kitchenPopup.style.display = 'flex';
+                            }
                         }
                         return; 
                     }
@@ -378,10 +349,10 @@
 
         function selectTable(tableCode) {
             tableInlineArea.classList.add('hidden');
+            const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            // 사장님이 설계하셨던 오리지널 깔끔한 4자리 구조로 컴백 ("1130", "9230" 등)
-            const signalValue = `${tableCode}${selectedDessertCode}30`;
-            sendSignal(signalValue);
+            // 디저트 호출 시 알림이 폰과 워치로 가도록 전송 방식 변경
+            sendDessertCallSignal(signalValue, tableCode, selectedDessertCode);
 
             const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
@@ -403,7 +374,6 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            stopBeeping();
             sendSignal("99999"); 
         }
 
@@ -425,15 +395,35 @@
             }
         }
 
-        // [v1.4.6 핵심] ntfy 철칙: body 비우고 X-Message 헤더에 신호 탑재
+        // 일반 데이터 싱크용 전송부 (카운터 등 백그라운드용)
         function sendSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
                 headers: {
-                    'X-Firebase': 'no',
-                    'X-Message': String(value) // 이 헤더가 있어야 ntfy가 브라우저 SSE 레이어로 즉시 데이터 토해냄
-                }
-                // body는 완벽하게 비워둠 (모바일 푸시 낭비 완전 차단 및 SSE 우회 완벽 성공)
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'X-Priority': 'min',  // 단순 데이터 동기화는 푸시를 발생시키지 않음
+                    'X-Cache': 'no'
+                },
+                body: String(value)
             }).catch(e => { console.error("전송 실패:", e); });
         }
-    </script></body></html>
+
+        // 🚨 디저트 호출 전용 푸시 활성화 전송 엔진
+        function sendDessertCallSignal(value, tableCode, dessertCode) {
+            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
+            const dessertName = (dessertCode === 1) ? "젤라또" : "티라미수";
+            
+            fetch(SERVER_URL, { 
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'X-Title': `MURÉ 디저트 호출`, // 폰/워치 상단에 깔끔하게 뜰 타이틀
+                    'X-Message': `🔔 [${tableName}] ${dessertName} 준비해주세요!`, // 워치에 찍힐 가독성 좋은 메시지
+                    'X-Cache': 'no' // 즉각적인 SSE 반응용 (X-Priority 헤더는 완전 제거하여 푸시 정상화)
+                },
+                body: String(value) // 오리지널 규격(DSS_X_X_30) 데이터도 함께 실어 전송
+            }).catch(e => { console.error("호출 전송 실패:", e); });
+        }
+    </script>
+</body>
+</html>
