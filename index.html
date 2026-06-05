@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 (v2.0.0)</title>
+    <title>MURÉ 실시간 카운터</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -25,44 +25,22 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        .number-zone {
-            height: 60vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-grow: 1;
             width: 100%;
         }
         .number {
-            font-size: 16rem;
+            font-size: 14rem;
             font-weight: 800;
+            margin: 5px 0;
             font-variant-numeric: tabular-nums;
-            line-height: 1;
         }
-        .control-zone {
-            height: 35vh;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .plate-group, .btn-group {
+        .plate-group {
             display: flex;
             gap: 12px;
             justify-content: center;
+            margin-bottom: 25px;
             width: 90%;
             max-width: 500px;
-            margin-bottom: 15px;
-        }
-        button {
-            border-radius: 15px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.1s;
         }
         .btn-plate {
             flex: 1;
@@ -70,7 +48,19 @@
             color: #ffb300;
             border: 2px solid #48484a;
             padding: 15px 0;
-            font-size: 1.3rem;
+            font-size: 1.4rem;
+            font-weight: bold;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .btn-plate:active {
+            background-color: #48484a;
+        }
+        .btn-group {
+            display: flex;
+            gap: 25px;
+            justify-content: center;
         }
         .btn-control {
             background-color: #1a1a1a;
@@ -78,137 +68,151 @@
             border: 2px solid #333333;
             padding: 20px 50px;
             font-size: 3rem;
-            flex: 1;
+            font-weight: bold;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.1s;
         }
-        .reset-container { position: fixed; bottom: 10px; left: 10px; margin: 0; z-index: 5; }
-        .btn-reset { background-color: #111111; color: #ff4d4d; border: 1px solid #222222; padding: 8px 18px; font-size: 1rem; border-radius: 8px; }
-        
-        .code-version-tag {
-            position: fixed;
-            bottom: 12px;
-            right: 15px;
-            font-size: 0.8rem;
-            color: #555555;
-            font-family: monospace;
-            z-index: 5;
-            background-color: rgba(20, 20, 20, 0.8);
-            padding: 3px 8px;
-            border-radius: 4px;
+        .btn-control:active {
+            background-color: #444444;
+        }
+        .reset-container {
+            margin-bottom: 40px;
+        }
+        .btn-reset {
+            background-color: #111111;
+            color: #ff4d4d;
             border: 1px solid #222222;
-            pointer-events: none;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            font-weight: normal;
+            border-radius: 10px;
+            cursor: pointer;
         }
-        .hidden { display: none !important; }
+        .btn-reset:active {
+            background-color: #331111;
+        }
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
-<body id="main-body">
+<body>
 
     <div class="counter-container">
-        <div class="number-zone">
-            <div class="number" id="count-view">0</div>
-        </div>
+        <div class="number" id="count-view">0</div>
         
-        <div class="control-zone">
-            <div id="kitchen-area" style="width:100%; display:flex; flex-direction:column; align-items:center;">
-                <div class="plate-group">
-                    <button class="btn-plate" onclick="setPlateCount(6)">1판(6)</button>
-                    <button class="btn-plate" onclick="setPlateCount(12)">2판(12)</button>
-                    <button class="btn-plate" onclick="setPlateCount(18)">3판(18)</button>
-                    <button class="btn-plate" onclick="setPlateCount(24)">4판(24)</button>
-                </div>
-                <div class="btn-group">
-                    <button class="btn-control" onclick="changeCount(-1)">-</button>
-                    <button class="btn-control" onclick="changeCount(1)">+</button>
-                </div>
-            </div>
+        <div class="plate-group" id="plate-area">
+            <button class="btn-plate" onclick="setPlateCount(6)">1판(6)</button>
+            <button class="btn-plate" onclick="setPlateCount(12)">2판(12)</button>
+            <button class="btn-plate" onclick="setPlateCount(18)">3판(18)</button>
+            <button class="btn-plate" onclick="setPlateCount(24)">4판(24)</button>
+        </div>
+
+        <div class="btn-group" id="controls">
+            <button class="btn-control" onclick="changeCount(-1)">-</button>
+            <button class="btn-control" onclick="changeCount(1)">+</button>
         </div>
     </div>
 
     <div class="reset-container" id="reset-area">
-        <button class="btn-reset" onclick="resetCount()">초기화</button>
+        <button class="btn-reset" onclick="resetCount()">숫자 초기화</button>
     </div>
 
-    <div class="code-version-tag">v2.0.0</div>
-
     <script>
-        // 주방/홀 모드 분기를 제거하고 카운터 값만 가볍게 관리합니다.
-        const FIREBASE_URL = "https://mure-counter-default-rtdb.firebaseio.com/mure_v16/count.json";
+        const TOPIC = "mure_pos_live_counter_channel_2026";
+        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
+        // 브라우저 메모리에 저장되어 있던 기존 숫자가 있다면 가져오고, 없으면 0으로 시작
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        let sseSource = null;
         
         const countView = document.getElementById('count-view');
+        const plateArea = document.getElementById('plate-area');
+        const controls = document.getElementById('controls');
+        const resetArea = document.getElementById('reset-area');
+
+        const isViewMode = window.location.search.includes('view');
+
+        if (isViewMode) {
+            plateArea.classList.add('hidden');
+            controls.classList.add('hidden');
+            resetArea.classList.add('hidden');
+        }
+
+        // 초기 화면 설정
         countView.innerText = currentCount;
 
-        // 서버로 숫자 전송 (단일 숫자 값만 깔끔하게 전송)
-        function updateFirebaseCount(nextValue) {
-            fetch(FIREBASE_URL, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(nextValue)
-            }).catch(e => console.error("데이터 전송 실패:", e));
-        }
-
-        // 실시간 스트리밍 연동 (와이파이 / LTE 공용 표준 규격)
-        function connectStream() {
-            if (sseSource) {
-                sseSource.close();
-                sseSource = null;
-            }
-            
-            sseSource = new EventSource(FIREBASE_URL);
-            
-            sseSource.addEventListener('put', (event) => {
-                try {
-                    const eventData = JSON.parse(event.data);
-                    if (!eventData || eventData.data === undefined) return;
+        // 초고속 실시간 연동망 연결
+        const eventSource = new EventSource(`${SERVER_URL}/sse`);
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const eventData = JSON.parse(event.data);
+                if (eventData && eventData.message !== undefined) {
+                    const msg = eventData.message.trim();
                     
-                    const serverValue = Number(eventData.data);
-
-                    if (!isNaN(serverValue) && serverValue >= 0 && serverValue <= 30) {
-                        currentCount = serverValue;
-                        countView.innerText = currentCount;
-                        localStorage.setItem('mure_last_count', currentCount);
+                    // 1. 새로 들어온 기기가 "지금 몇이냐?" 하고 요청한 경우
+                    if (msg === "REQ_SYNC") {
+                        // 내가 조작 모드라면 내가 가진 최신 숫자를 즉시 쏴줌
+                        if (!isViewMode) {
+                            sendSignal("ANS:" + currentCount);
+                        }
+                    } 
+                    // 2. 다른 폰이 쏴준 답변 신호를 받았을 때
+                    else if (msg.startsWith("ANS:")) {
+                        const targetNum = msg.split(":")[1];
+                        if (!isNaN(targetNum)) {
+                            updateLocalAndScreen(Number(targetNum));
+                        }
+                    } 
+                    // 3. 버튼 클릭으로 인한 일반 숫자 변동일 때
+                    else if (!isNaN(msg) && msg !== "") {
+                        updateLocalAndScreen(Number(msg));
                     }
-                } catch (e) { console.error("데이터 동기화 오류:", e); }
-            });
-
-            // 연결이 완전히 끊겼을 때만 자동 재연결 처리
-            sseSource.onerror = () => {
-                if (sseSource) {
-                    sseSource.close();
-                    sseSource = null;
                 }
-                setTimeout(connectStream, 2000);
-            };
+            } catch (e) { }
+        };
+
+        // 화면과 브라우저 내장 메모리를 동시에 갱신하는 안전한 함수
+        function updateLocalAndScreen(num) {
+            currentCount = num;
+            countView.innerText = currentCount;
+            localStorage.setItem('mure_last_count', currentCount);
         }
 
-        // 첫 실행 및 화면 복귀 시 동기화
-        connectStream();
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                connectStream();
-            }
-        });
-
-        // 조작 함수들
+        // 판수 세팅
         function setPlateCount(targetNumber) {
-            if (targetNumber >= 0 && targetNumber <= 30) {
-                updateFirebaseCount(targetNumber);
-            }
+            updateLocalAndScreen(targetNumber);
+            sendSignal(targetNumber);
         }
 
+        // 미세 조절
         function changeCount(amount) {
-            const nextCount = currentCount + amount;
-            if (nextCount >= 0 && nextCount <= 30) {
-                updateFirebaseCount(nextCount);
-            }
+            const nextCount = Number(currentCount) + Number(amount);
+            updateLocalAndScreen(nextCount);
+            sendSignal(nextCount);
         }
 
+        // 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                updateFirebaseCount(0);
+                updateLocalAndScreen(0);
+                sendSignal(0);
             }
         }
+
+        // 서버 신호 전송
+        function sendSignal(value) {
+            fetch(SERVER_URL, {
+                method: 'POST',
+                body: String(value)
+            });
+        }
+
+        // 🌟 접속하자마자 이미 열려 있는 다른 기기들에게 현재 숫자를 달라고 요청 (새로고침 버그 완벽 차단)
+        setTimeout(() => {
+            sendSignal("REQ_SYNC");
+        }, 300);
     </script>
 </body>
 </html>
