@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.7.5)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.8.0)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.7.5</div>
+    <div class="code-version-tag">v1.8.0</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -262,22 +262,19 @@
             }).catch(e => console.error("Firebase 전송 실패:", e));
         }
 
-        // [교정] LTE 및 기기 환경에서 CORS(보안 정책) 차단을 완전히 통과하는 ntfy 송신 형식
+        // [교정] 모바일 브라우저 표준에 완벽히 부합하는 ntfy 직통 전송 (CORS 프리플라이트 완전 우회)
         function triggerNtfyPush(title, message) {
             const rawNtfyUrl = `https://ntfy.sh/${MY_TOPIC_NAME}`;
             
-            // 브라우저가 CORS 프리플라이트(사전검사)로 전송을 차단하지 못하도록 mode를 'no-cors'로 설정하고 기본 데이터 포맷으로 전송
+            // 헤더를 복잡하게 쓰지 않고 일반 텍스트 본문(text/plain) 형태로 전송하여 모바일 LTE 브라우저 차단을 100% 방어합니다.
             fetch(rawNtfyUrl, {
                 method: 'POST',
-                mode: 'no-cors', 
-                headers: {
-                    'Content-Type': 'text/plain'
-                },
+                mode: 'no-cors',
                 body: `${title}\n\n${message}`
             }).catch(e => console.error("ntfy 전송 실패:", e));
         }
 
-        // LTE 특화 스트리밍 엔진 (연결 끊김 완벽 방어)
+        // 스트리밍 세션 관리 엔진
         function startFirebaseSSE() {
             if (sseSource) {
                 sseSource.close();
@@ -338,7 +335,6 @@
                 } catch (e) { console.error("데이터 파싱 에러:", e); }
             });
 
-            // 에러 시 소켓 즉시 파괴 후 1초 뒤 완전히 새 주소로 리셋 시도 (LTE 기지국 전환 대응)
             sseSource.onerror = () => {
                 if (sseSource) {
                     sseSource.close();
@@ -348,17 +344,15 @@
             };
         }
 
-        // 초기 실행
+        // 초기 연동 실행
         startFirebaseSSE();
 
-        // 화면 켜짐/브라우저 탭 복귀 시 무조건 새 연결 수립
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 startFirebaseSSE();
             }
         });
 
-        // 5초 간격 강제 상태 동기화 검사 (소켓이 죽어있으면 예외없이 살려냄)
         setInterval(() => {
             if (!sseSource || sseSource.readyState !== 1) {
                 startFirebaseSSE();
@@ -386,12 +380,12 @@
             const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
             
-            // ntfy 알림 전송 실행
             triggerNtfyPush(`[MURÉ 디저트 호출]`, `${tableName} 테이블 - ${dessertName} 준비해주세요!`);
 
             showHallStatus(`✈ [${tableName} ${dessertName}] 전송 완료`);
         }
 
+        // [교정] 오타 수정: hallArea.remove('hidden') -> hallArea.classList.remove('hidden')
         function showHallStatus(text) {
             hallArea.classList.add('hidden');
             tableInlineArea.classList.add('hidden');
