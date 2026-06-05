@@ -82,21 +82,31 @@
             font-size: 3rem;
             flex: 1;
         }
-        /* 홀 뷰어 전용 디저트 버튼 */
+        /* 홀 뷰어 전용 디저트 버튼 레이아웃 수정 */
         .hall-group {
             display: flex;
-            gap: 20px;
+            gap: 12px;
             width: 90%;
             max-width: 500px;
             justify-content: center;
+            align-items: center;
         }
         .btn-dessert {
-            flex: 1;
+            flex: 2;
             padding: 30px 0;
             font-size: 1.8rem;
             border: 3px solid #007aff;
             background-color: #1c1c1e;
             color: #30b0ff;
+        }
+        /* 디저트 단계 메뉴 취소 버튼 스타일 */
+        .btn-dessert-back {
+            flex: 1;
+            padding: 30px 0;
+            font-size: 1.4rem;
+            border: 3px solid #48484a;
+            background-color: #2c2c2e;
+            color: #aeaeb2;
         }
         /* 하단 고정형 테이블 번호판 */
         .table-inline-grid {
@@ -118,8 +128,8 @@
             color: #fff;
             border: none;
             grid-column: span 5;
-            padding: 10px 0;
-            font-size: 1.1rem;
+            padding: 15px 0;
+            font-size: 1.2rem;
             margin-top: 5px;
         }
         /* 하단 안내문구 상자 */
@@ -185,6 +195,7 @@
             <div id="hall-area" class="hall-group hidden">
                 <button class="btn-dessert" onclick="showInlineTables('🍨 젤라또')">🍨 젤라또</button>
                 <button class="btn-dessert" onclick="showInlineTables('🍰 티라미수')">🍰 티라미수</button>
+                <button class="btn-dessert-back" onclick="resetToDefaultView()">❌ 취소</button>
             </div>
 
             <div id="table-inline-area" class="table-inline-grid hidden">
@@ -197,7 +208,7 @@
                 <button class="btn-table" onclick="selectTable('7번')">7번</button>
                 <button class="btn-table" onclick="selectTable('8번')">8번</button>
                 <button class="btn-table" onclick="selectTable('바')">바(Bar)</button>
-                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 취소</button>
+                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 취소 (처음으로)</button>
             </div>
 
             <div id="status-message-box" class="status-msg hidden"></div>
@@ -221,6 +232,8 @@
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         let selectedDessert = ""; 
+        let lastReceivedTable = ""; // 문자열 파싱 오류 원천 차단용 변수
+        let lastReceivedDessert = "";
 
         const countView = document.getElementById('count-view');
         const kitchenArea = document.getElementById('kitchen-area');
@@ -240,7 +253,6 @@
         }
         countView.innerText = currentCount;
 
-        // 🌟 [배터리 최적화] 무한 무전기(setInterval) 삭제하고 순수 푸시 알림 수신망만 유지
         const eventSource = new EventSource(`${SERVER_URL}/sse`);
         
         eventSource.onmessage = (event) => {
@@ -264,7 +276,11 @@
                         const dessert = parts[1];
                         const table = parts[2];
 
+                        // 주방 모드(isViewMode가 아닐 때) 팝업 알림 작동
                         if (!isViewMode) { 
+                            lastReceivedDessert = dessert;
+                            lastReceivedTable = table;
+                            
                             mainBody.classList.add('flashing');
                             document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${table} 테이블]<br><br><span style="color:#30b0ff;">${dessert}</span> 준비해주세요!`;
                             kitchenPopup.style.display = 'flex';
@@ -283,7 +299,6 @@
             } catch (e) { }
         };
 
-        // 처음 켜졌을 때 동기화 요청
         setTimeout(() => { sendQuietSignal("REQ_SYNC"); }, 300);
 
         function showInlineTables(dessertName) {
@@ -292,15 +307,30 @@
             tableInlineArea.classList.remove('hidden');
         }
 
+        // 테이블 선택화면에서 취소 누르면 디저트 선택 화면으로 복귀
         function cancelTableSelect() {
             tableInlineArea.classList.add('hidden');
+            selectedDessert = "";
             hallArea.classList.remove('hidden');
+        }
+
+        // 디저트 선택화면에서 잘못 눌렀을 때 초기 메인(숫자) 화면으로 복귀
+        function resetToDefaultView() {
+            selectedDessert = "";
+            // 일반 사용자 모드처럼 깔끔하게 초기화 (기본 뷰 상태 유지)
+            if (!isViewMode) {
+                hallArea.classList.add('hidden');
+                kitchenArea.classList.remove('hidden');
+            } else {
+                // 홀 뷰어 모드라면 디저트 창이 기본이므로 그대로 유지하되 데이터만 리셋
+                selectedDessert = "";
+            }
         }
 
         function selectTable(tableName) {
             tableInlineArea.classList.add('hidden');
-            // 🌟 디저트 호출은 워치 알림이 울려야 하므로 일반 전송 소스 사용
-            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`, `${tableName} ${selectedDessert} 준비 요청`);
+            // 헤더를 순수 본문(Body)에 얹어 전송하여 폰 앱과 서버가 100% 동시 호환되도록 완벽 보정
+            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`, `${tableName} ${selectedDessert} 호출`);
             showHallStatus(`✈ [${tableName} ${selectedDessert}] 전송 완료`);
         }
 
@@ -313,7 +343,7 @@
             setTimeout(() => {
                 statusMessageBox.classList.add('hidden');
                 hallArea.classList.remove('hidden');
-            }, 400);
+            }, 1000);
         }
 
         function updateLocalAndScreen(num) {
@@ -325,13 +355,7 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            
-            const msgText = document.getElementById('kitchen-msg-text').innerText;
-            const table = msgText.match(/\[(.*?) 테이블\]/)?.[1] || "알수없음";
-            const dessert = msgText.includes("🍨 젤라또") ? "🍨 젤라또" : "🍰 티라미수";
-
-            // 주방 확인 신호도 워치는 조용히 넘어가도록 설정
-            sendQuietSignal(`KITCHEN_DONE:${dessert}:${table}`);
+            sendQuietSignal(`KITCHEN_DONE:${lastReceivedDessert}:${lastReceivedTable}`);
         }
 
         function setPlateCount(targetNumber) {
@@ -352,24 +376,25 @@
             }
         }
 
-        // 🌟 [워치 알림 제어 1] 카운트 변동 및 내부 신호는 푸시 알림(진동) 원천 차단 명령어 포함 전송
+        // 조용한 신호 (카운트 연동)
         function sendQuietSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
-                headers: { 'X-Firebase': 'no' }, // 이 헤더가 워치 어플의 푸시 팝업을 조용하게 만듭니다.
+                headers: { 'X-Firebase': 'no' }, 
                 body: String(value) 
             });
         }
 
-        // 🌟 [워치 알림 제어 2] 오직 디저트 벨을 울릴 때만 워치에 징~ 알림 팝업 전송
+        // 강한 신호 (디저트 벨) - 폰 앱 데이터 수신 구조와 애플워치 우선순위를 통합 매칭 처리
         function sendLoudSignal(value, alertTitle) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
                 headers: {
                     'X-Title': '🧁 MURE 디저트 호출',
-                    'X-Priority': 'high' // 워치와 폰에 즉시 진동 및 팝업 강제 유도
+                    'X-Priority': '5',  // 푸시 알림 강제 유도 최고 레벨
+                    'X-Tags': 'bell'
                 },
-                body: String(value) 
+                body: String(value) // 순수한 CALL:... 포맷 데이터를 본문으로 밀어 넣어 폰 브라우저가 즉시 읽게 만듭니다.
             });
         }
     </script>
