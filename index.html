@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.3)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.5)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.5.3</div>
+    <div class="code-version-tag">v1.5.5</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -229,16 +229,12 @@
     </div>
 
     <script>
-        const BASE_TOPIC = "mure_pos_live_counter_channel_2026";
-        const COUNTER_URL = `https://ntfy.sh/${BASE_TOPIC}_counter`; 
-        const BELL_URL = `https://ntfy.sh/${BASE_TOPIC}_bell`;        
+        // 와이파이 방화벽 통과를 위해 ntfy 공식 우회 도메인(ntfy.be) 사용
+        const NTFY_BASE_URL = "https://ntfy.be/mure_v16";
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        if (currentCount > 30) currentCount = 30;
-        
         let selectedDessertCode = 0; 
-        let sseCounter = null;
-        let sseBell = null;
+        let sseSource = null;
         
         const countView = document.getElementById('count-view');
         const kitchenArea = document.getElementById('kitchen-area');
@@ -258,58 +254,38 @@
         }
         countView.innerText = currentCount;
 
-        // 원초적 전송 대신 안전한 전송 함수 정의 (헤더 포함)
-        function safePost(url, payload) {
-            return fetch(url, { 
-                method: 'POST', 
-                headers: {
-                    'Content-Type': 'text/plain; charset=utf-8'
-                },
-                body: String(payload)
-            }).catch(e => { console.error("전송 에러:", e); });
+        // ntfy 서버로 메시지를 보내는 표준 POST 함수
+        function sendNtfyMessage(messageStr, isSilent = false) {
+            const headers = { 'Content-Type': 'text/plain' };
+            // 카운터 변경값 등 백그라운드 팝업이 필요 없는 알림은 우선순위를 최하(min)로 낮춰 무음 처리
+            if (isSilent) {
+                headers['X-Priority'] = 'min';
+            } else {
+                headers['X-Priority'] = 'high'; // 디저트 호출은 중요 알림 처리
+            }
+
+            fetch(NTFY_BASE_URL, {
+                method: 'POST',
+                headers: headers,
+                body: messageStr
+            }).catch(e => console.error("ntfy 전송 실패:", e));
         }
 
-        function startCounterSSE() {
-            if (sseCounter) { sseCounter.close(); sseCounter = null; }
-            sseCounter = new EventSource(`${COUNTER_URL}/sse`);
+        // ntfy 실시간 스트리밍 연결 개시 (SSE 호환 주소 사용)
+        function startNtfySSE() {
+            if (sseSource) sseSource.close();
             
-            sseCounter.onmessage = (event) => {
+            // ntfy 공식 규격에 맞는 sse 전용 endpoint 연결
+            sseSource = new EventSource(`${NTFY_BASE_URL}/sse`);
+            
+            sseSource.onmessage = (event) => {
                 try {
                     const eventData = JSON.parse(event.data);
-                    if (!eventData || eventData.event !== "message" || eventData.message === undefined) return;
-                    const rawMsg = eventData.message.toString().trim();
+                    if (!eventData || !eventData.message) return;
                     
-                    if (rawMsg === "REQ_SYNC") {
-                        if (!isViewMode) safePost(COUNTER_URL, "CNT_" + currentCount);
-                        return;
-                    }
-
-                    if (rawMsg.startsWith("CNT_")) {
-                        const numData = Number(rawMsg.replace("CNT_", ""));
-                        if (!isNaN(numData) && numData >= 0 && numData <= 30) {
-                            currentCount = numData;
-                            countView.innerText = currentCount;
-                            localStorage.setItem('mure_last_count', currentCount);
-                        }
-                    }
-                } catch (e) { console.error("카운터 수신 에러:", e); }
-            };
-            sseCounter.onerror = () => {
-                if(sseCounter) sseCounter.close();
-                setTimeout(startCounterSSE, 2000);
-            };
-        }
-
-        function startBellSSE() {
-            if (sseBell) { sseBell.close(); sseBell = null; }
-            sseBell = new EventSource(`${BELL_URL}/sse`);
-            
-            sseBell.onmessage = (event) => {
-                try {
-                    const eventData = JSON.parse(event.data);
-                    if (!eventData || eventData.event !== "message" || eventData.message === undefined) return;
-                    const rawMsg = eventData.message.toString().trim();
+                    const rawMsg = String(eventData.message).trim();
                     
+                    // 1. 주방 확인 알림 (99999) 처리
                     if (rawMsg === "99999") {
                         if (isViewMode) {
                             showHallStatus("✓ 주방에서 확인했습니다.");
@@ -320,9 +296,22 @@
                         return;
                     }
 
+                    // 2. 카운터 동기화 코드 처리 (CNT_숫자 형태)
+                    if (rawMsg.startsWith("CNT_")) {
+                        const numStr = rawMsg.replace("CNT_", "");
+                        const num = Number(numStr);
+                        if (!isNaN(num) && num >= 0 && num <= 30) {
+                            currentCount = num;
+                            countView.innerText = currentCount;
+                            localStorage.setItem('mure_last_count', currentCount);
+                        }
+                        return;
+                    }
+                    
+                    // 3. 디저트 알림 벨 동기화 (DSS_코드 형태)
                     if (rawMsg.startsWith("DSS_")) {
-                        if (!isViewMode) { 
-                            const codeStr = rawMsg.replace("DSS_", ""); 
+                        if (!isViewMode) {
+                            const codeStr = rawMsg.replace("DSS_", "");
                             if (/^[1-9][1-2]30$/.test(codeStr)) {
                                 const tableCode = codeStr.charAt(0);
                                 const dessertCode = codeStr.charAt(1);
@@ -336,34 +325,25 @@
                             }
                         }
                     }
-                } catch (e) { console.error("벨 수신 에러:", e); }
+                } catch (e) { console.error("데이터 파싱 에러:", e); }
             };
-            sseBell.onerror = () => {
-                if(sseBell) sseBell.close();
-                setTimeout(startBellSSE, 2000);
+
+            sseSource.onerror = () => {
+                sseSource.close();
+                setTimeout(startNtfySSE, 2000);
             };
         }
 
-        // 초기 구동
-        startCounterSSE();
-        startBellSSE();
+        // 초기 실행
+        startNtfySSE();
 
-        // 화면 켜지거나 와이파이 재연결 시 강제 초기화 및 싱크 요청
+        // 화면 전환 복귀 및 연결 감시
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                startCounterSSE();
-                startBellSSE();
-                setTimeout(() => { safePost(COUNTER_URL, 'REQ_SYNC'); }, 500);
-            }
+            if (document.visibilityState === 'visible') startNtfySSE();
         });
-
-        // 타이머 감시 (끊김 방지)
         setInterval(() => {
-            if (!sseCounter || sseCounter.readyState !== 1) startCounterSSE();
-            if (!sseBell || sseBell.readyState !== 1) startBellSSE();
+            if (!sseSource || sseSource.readyState !== 1) startNtfySSE();
         }, 5000);
-
-        setTimeout(() => { safePost(COUNTER_URL, 'REQ_SYNC'); }, 600);
 
         function showInlineTables(dessertCode) {
             selectedDessertCode = dessertCode;
@@ -381,7 +361,8 @@
             tableInlineArea.classList.add('hidden');
             const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            safePost(BELL_URL, signalValue);
+            // 중요 디저트 알림이므로 무음 처리(isSilent)하지 않고 전송 -> 스마트폰 푸시 알림 발생
+            sendNtfyMessage(signalValue, false);
 
             const tableName = (tableCode === 9 || tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
@@ -403,24 +384,24 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            safePost(BELL_URL, '99999');
+            sendNtfyMessage("99999", true); // 확인 신호는 무음 전송
         }
 
         function setPlateCount(targetNumber) {
             if (targetNumber > 30) targetNumber = 30;
-            safePost(COUNTER_URL, "CNT_" + targetNumber);
+            sendNtfyMessage(`CNT_${targetNumber}`, true); // 카운트 변경은 무음 전송
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             if (nextCount >= 0 && nextCount <= 30) {
-                safePost(COUNTER_URL, "CNT_" + nextCount);
+                sendNtfyMessage(`CNT_${nextCount}`, true); // 카운트 변경은 무음 전송
             }
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                safePost(COUNTER_URL, "CNT_0");
+                sendNtfyMessage("CNT_0", true);
             }
         }
     </script>
