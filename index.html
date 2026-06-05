@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터</title>
+    <title>MURÉ 실시간 카운터 & 호출벨</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -25,22 +25,46 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            flex-grow: 1;
+            height: 100vh;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        /* 상단 대기 숫자 영역 - 높이 고정으로 미동 불가 */
+        .number-zone {
+            height: 60vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             width: 100%;
         }
         .number {
-            font-size: 14rem;
+            font-size: 16rem;
             font-weight: 800;
-            margin: 5px 0;
             font-variant-numeric: tabular-nums;
+            line-height: 1;
         }
-        .plate-group {
+        /* 하단 제어 영역 - 높이 고정으로 상단 숫자 보호 */
+        .control-zone {
+            height: 35vh;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .plate-group, .btn-group {
             display: flex;
             gap: 12px;
             justify-content: center;
-            margin-bottom: 25px;
             width: 90%;
             max-width: 500px;
+            margin-bottom: 15px;
+        }
+        button {
+            border-radius: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.1s;
         }
         .btn-plate {
             flex: 1;
@@ -48,19 +72,7 @@
             color: #ffb300;
             border: 2px solid #48484a;
             padding: 15px 0;
-            font-size: 1.4rem;
-            font-weight: bold;
-            border-radius: 15px;
-            cursor: pointer;
-            transition: background 0.1s;
-        }
-        .btn-plate:active {
-            background-color: #48484a;
-        }
-        .btn-group {
-            display: flex;
-            gap: 25px;
-            justify-content: center;
+            font-size: 1.3rem;
         }
         .btn-control {
             background-color: #1a1a1a;
@@ -68,81 +80,167 @@
             border: 2px solid #333333;
             padding: 20px 50px;
             font-size: 3rem;
-            font-weight: bold;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: background 0.1s;
+            flex: 1;
         }
-        .btn-control:active {
-            background-color: #444444;
+        /* 홀 뷰어 전용 디저트 버튼 */
+        .hall-group {
+            display: flex;
+            gap: 20px;
+            width: 90%;
+            max-width: 500px;
+            justify-content: center;
         }
-        .reset-container {
-            margin-bottom: 40px;
+        .btn-dessert {
+            flex: 1;
+            padding: 30px 0;
+            font-size: 1.8rem;
+            border: 3px solid #007aff;
+            background-color: #1c1c1e;
+            color: #30b0ff;
         }
-        .btn-reset {
-            background-color: #111111;
-            color: #ff4d4d;
-            border: 1px solid #222222;
-            padding: 12px 30px;
+        /* 하단 고정형 테이블 번호판 */
+        .table-inline-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            width: 92%;
+            max-width: 550px;
+        }
+        .btn-table {
+            background-color: #1c1c1e;
+            color: #fff;
+            border: 2px solid #007aff;
+            padding: 18px 0;
             font-size: 1.2rem;
-            font-weight: normal;
-            border-radius: 10px;
-            cursor: pointer;
         }
-        .btn-reset:active {
-            background-color: #331111;
+        .btn-cancel {
+            background-color: #ff453a;
+            color: #fff;
+            border: none;
+            grid-column: span 5;
+            padding: 10px 0;
+            font-size: 1.1rem;
+            margin-top: 5px;
         }
-        .hidden {
-            display: none !important;
+        /* 하단 안내문구 상자 */
+        .status-msg {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #34c759;
+            background-color: #1c1c1e;
+            border: 2px solid #34c759;
+            padding: 22px 0;
+            border-radius: 15px;
+            text-align: center;
+            width: 85%;
+            max-width: 450px;
+            box-sizing: border-box;
         }
+        /* 주방용 호출 알림 팝업 (폰 전용) */
+        .kitchen-alert {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .kitchen-content { text-align: center; width: 90%; }
+        .kitchen-msg { font-size: 4rem; font-weight: 900; color: #ff9f0a; margin-bottom: 40px; line-height: 1.4; }
+        .btn-confirm { background-color: #34c759; color: white; font-size: 3rem; padding: 20px 80px; border: none; }
+        
+        @keyframes flash {
+            0% { background-color: #000; }
+            50% { background-color: #ff453a; }
+            100% { background-color: #000; }
+        }
+        .flashing { animation: flash 0.6s infinite; }
+        .reset-container { position: fixed; bottom: 10px; right: 10px; margin: 0; z-index: 5; }
+        .btn-reset { background-color: #111111; color: #ff4d4d; border: 1px solid #222222; padding: 8px 18px; font-size: 1rem; }
+        .hidden { display: none !important; }
     </style>
 </head>
-<body>
+<body id="main-body">
 
     <div class="counter-container">
-        <div class="number" id="count-view">0</div>
-        
-        <div class="plate-group" id="plate-area">
-            <button class="btn-plate" onclick="setPlateCount(6)">1판(6)</button>
-            <button class="btn-plate" onclick="setPlateCount(12)">2판(12)</button>
-            <button class="btn-plate" onclick="setPlateCount(18)">3판(18)</button>
-            <button class="btn-plate" onclick="setPlateCount(24)">4판(24)</button>
+        <div class="number-zone">
+            <div class="number" id="count-view">0</div>
         </div>
+        
+        <div class="control-zone">
+            <div id="kitchen-area" style="width:100%; display:flex; flex-direction:column; align-items:center;">
+                <div class="plate-group">
+                    <button class="btn-plate" onclick="setPlateCount(6)">1판(6)</button>
+                    <button class="btn-plate" onclick="setPlateCount(12)">2판(12)</button>
+                    <button class="btn-plate" onclick="setPlateCount(18)">3판(18)</button>
+                    <button class="btn-plate" onclick="setPlateCount(24)">4판(24)</button>
+                </div>
+                <div class="btn-group">
+                    <button class="btn-control" onclick="changeCount(-1)">-</button>
+                    <button class="btn-control" onclick="changeCount(1)">+</button>
+                </div>
+            </div>
 
-        <div class="btn-group" id="controls">
-            <button class="btn-control" onclick="changeCount(-1)">-</button>
-            <button class="btn-control" onclick="changeCount(1)">+</button>
+            <div id="hall-area" class="hall-group hidden">
+                <button class="btn-dessert" onclick="showInlineTables('🍨 젤라또')">🍨 젤라또</button>
+                <button class="btn-dessert" onclick="showInlineTables('🍰 티라미수')">🍰 티라미수</button>
+            </div>
+
+            <div id="table-inline-area" class="table-inline-grid hidden">
+                <button class="btn-table" onclick="selectTable('1번')">1번</button>
+                <button class="btn-table" onclick="selectTable('2번')">2번</button>
+                <button class="btn-table" onclick="selectTable('3번')">3번</button>
+                <button class="btn-table" onclick="selectTable('4번')">4번</button>
+                <button class="btn-table" onclick="selectTable('5번')">5번</button>
+                <button class="btn-table" onclick="selectTable('6번')">6번</button>
+                <button class="btn-table" onclick="selectTable('7번')">7번</button>
+                <button class="btn-table" onclick="selectTable('8번')">8번</button>
+                <button class="btn-table" onclick="selectTable('바')">바(Bar)</button>
+                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 취소</button>
+            </div>
+
+            <div id="status-message-box" class="status-msg hidden"></div>
         </div>
     </div>
 
     <div class="reset-container" id="reset-area">
-        <button class="btn-reset" onclick="resetCount()">숫자 초기화</button>
+        <button class="btn-reset" onclick="resetCount()">초기화</button>
+    </div>
+
+    <div class="kitchen-alert" id="kitchen-popup">
+        <div class="kitchen-content">
+            <div class="kitchen-msg" id="kitchen-msg-text">호출 들어옴</div>
+            <button class="btn-confirm" onclick="dismissKitchenAlert()">주방 확인 완료</button>
+        </div>
     </div>
 
     <script>
         const TOPIC = "mure_pos_live_counter_channel_2026";
         const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
-        // 브라우저 메모리에 저장되어 있던 기존 숫자가 있다면 가져오고, 없으면 0으로 시작
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
-        
+        let selectedDessert = ""; 
+
         const countView = document.getElementById('count-view');
-        const plateArea = document.getElementById('plate-area');
-        const controls = document.getElementById('controls');
+        const kitchenArea = document.getElementById('kitchen-area');
+        const hallArea = document.getElementById('hall-area');
+        const tableInlineArea = document.getElementById('table-inline-area');
         const resetArea = document.getElementById('reset-area');
+        const statusMessageBox = document.getElementById('status-message-box');
+        const kitchenPopup = document.getElementById('kitchen-popup');
+        const mainBody = document.getElementById('main-body');
 
         const isViewMode = window.location.search.includes('view');
 
         if (isViewMode) {
-            plateArea.classList.add('hidden');
-            controls.classList.add('hidden');
+            kitchenArea.classList.add('hidden');
             resetArea.classList.add('hidden');
+            hallArea.classList.remove('hidden'); 
         }
-
-        // 초기 화면 설정
         countView.innerText = currentCount;
 
-        // 초고속 실시간 연동망 연결
+        // 🌟 [배터리 최적화] 무한 무전기(setInterval) 삭제하고 순수 푸시 알림 수신망만 유지
         const eventSource = new EventSource(`${SERVER_URL}/sse`);
         
         eventSource.onmessage = (event) => {
@@ -151,68 +249,129 @@
                 if (eventData && eventData.message !== undefined) {
                     const msg = eventData.message.trim();
                     
-                    // 1. 새로 들어온 기기가 "지금 몇이냐?" 하고 요청한 경우
                     if (msg === "REQ_SYNC") {
-                        // 내가 조작 모드라면 내가 가진 최신 숫자를 즉시 쏴줌
-                        if (!isViewMode) {
-                            sendSignal("ANS:" + currentCount);
-                        }
+                        if (!isViewMode) sendQuietSignal("ANS:" + currentCount);
                     } 
-                    // 2. 다른 폰이 쏴준 답변 신호를 받았을 때
                     else if (msg.startsWith("ANS:")) {
                         const targetNum = msg.split(":")[1];
-                        if (!isNaN(targetNum)) {
-                            updateLocalAndScreen(Number(targetNum));
-                        }
+                        if (!isNaN(targetNum)) updateLocalAndScreen(Number(targetNum));
                     } 
-                    // 3. 버튼 클릭으로 인한 일반 숫자 변동일 때
                     else if (!isNaN(msg) && msg !== "") {
                         updateLocalAndScreen(Number(msg));
+                    } 
+                    else if (msg.startsWith("CALL:")) {
+                        const parts = msg.split(":");
+                        const dessert = parts[1];
+                        const table = parts[2];
+
+                        if (!isViewMode) { 
+                            mainBody.classList.add('flashing');
+                            document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${table} 테이블]<br><br><span style="color:#30b0ff;">${dessert}</span> 준비해주세요!`;
+                            kitchenPopup.style.display = 'flex';
+                        }
+                    }
+                    else if (msg.startsWith("KITCHEN_DONE:")) {
+                        const parts = msg.split(":");
+                        const dessert = parts[1];
+                        const table = parts[2];
+
+                        if (isViewMode) {
+                            showHallStatus(`✓ 주방에서 [${table} ${dessert}] 확인했습니다.`);
+                        }
                     }
                 }
             } catch (e) { }
         };
 
-        // 화면과 브라우저 내장 메모리를 동시에 갱신하는 안전한 함수
+        // 처음 켜졌을 때 동기화 요청
+        setTimeout(() => { sendQuietSignal("REQ_SYNC"); }, 300);
+
+        function showInlineTables(dessertName) {
+            selectedDessert = dessertName;
+            hallArea.classList.add('hidden');
+            tableInlineArea.classList.remove('hidden');
+        }
+
+        function cancelTableSelect() {
+            tableInlineArea.classList.add('hidden');
+            hallArea.classList.remove('hidden');
+        }
+
+        function selectTable(tableName) {
+            tableInlineArea.classList.add('hidden');
+            // 🌟 디저트 호출은 워치 알림이 울려야 하므로 일반 전송 소스 사용
+            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`, `${tableName} ${selectedDessert} 준비 요청`);
+            showHallStatus(`✈ [${tableName} ${selectedDessert}] 전송 완료`);
+        }
+
+        function showHallStatus(text) {
+            hallArea.classList.add('hidden');
+            tableInlineArea.classList.add('hidden');
+            statusMessageBox.innerText = text;
+            statusMessageBox.classList.remove('hidden');
+
+            setTimeout(() => {
+                statusMessageBox.classList.add('hidden');
+                hallArea.classList.remove('hidden');
+            }, 400);
+        }
+
         function updateLocalAndScreen(num) {
             currentCount = num;
             countView.innerText = currentCount;
             localStorage.setItem('mure_last_count', currentCount);
         }
 
-        // 판수 세팅
-        function setPlateCount(targetNumber) {
-            updateLocalAndScreen(targetNumber);
-            sendSignal(targetNumber);
+        function dismissKitchenAlert() {
+            kitchenPopup.style.display = 'none';
+            mainBody.classList.remove('flashing');
+            
+            const msgText = document.getElementById('kitchen-msg-text').innerText;
+            const table = msgText.match(/\[(.*?) 테이블\]/)?.[1] || "알수없음";
+            const dessert = msgText.includes("🍨 젤라또") ? "🍨 젤라또" : "🍰 티라미수";
+
+            // 주방 확인 신호도 워치는 조용히 넘어가도록 설정
+            sendQuietSignal(`KITCHEN_DONE:${dessert}:${table}`);
         }
 
-        // 미세 조절
+        function setPlateCount(targetNumber) {
+            updateLocalAndScreen(targetNumber);
+            sendQuietSignal(targetNumber);
+        }
+
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             updateLocalAndScreen(nextCount);
-            sendSignal(nextCount);
+            sendQuietSignal(nextCount);
         }
 
-        // 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 updateLocalAndScreen(0);
-                sendSignal(0);
+                sendQuietSignal(0);
             }
         }
 
-        // 서버 신호 전송
-        function sendSignal(value) {
-            fetch(SERVER_URL, {
-                method: 'POST',
-                body: String(value)
+        // 🌟 [워치 알림 제어 1] 카운트 변동 및 내부 신호는 푸시 알림(진동) 원천 차단 명령어 포함 전송
+        function sendQuietSignal(value) {
+            fetch(SERVER_URL, { 
+                method: 'POST', 
+                headers: { 'X-Firebase': 'no' }, // 이 헤더가 워치 어플의 푸시 팝업을 조용하게 만듭니다.
+                body: String(value) 
             });
         }
 
-        // 🌟 접속하자마자 이미 열려 있는 다른 기기들에게 현재 숫자를 달라고 요청 (새로고침 버그 완벽 차단)
-        setTimeout(() => {
-            sendSignal("REQ_SYNC");
-        }, 300);
+        // 🌟 [워치 알림 제어 2] 오직 디저트 벨을 울릴 때만 워치에 징~ 알림 팝업 전송
+        function sendLoudSignal(value, alertTitle) {
+            fetch(SERVER_URL, { 
+                method: 'POST', 
+                headers: {
+                    'X-Title': '🧁 MURE 디저트 호출',
+                    'X-Priority': 'high' // 워치와 폰에 즉시 진동 및 팝업 강제 유도
+                },
+                body: String(value) 
+            });
+        }
     </script>
 </body>
 </html>
