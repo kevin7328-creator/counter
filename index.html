@@ -120,86 +120,99 @@
     </div>
 
     <script>
-        // 🌟 [보안 차단 없는 완벽 공용 저장소] MURÉ 매장 전용 단독 데이터방 주소
-        const DB_URL = "https://api.jsonbin.io/v3/b/661234567890abcdef123456"; // 예시 아이디 형태이나 실구동 안정 구조
-        const ALTERNATE_DB = "https://api.myjson.online/v1/records/mure_bakery_counter"; 
+        const TOPIC = "mure_pos_live_counter_channel_2026";
+        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
         
-        let currentCount = 0;
-        let isSaving = false;
+        // 브라우저 메모리에 저장되어 있던 기존 숫자가 있다면 가져오고, 없으면 0으로 시작
+        let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         
         const countView = document.getElementById('count-view');
         const plateArea = document.getElementById('plate-area');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
-        if (window.location.search.includes('view')) {
+        const isViewMode = window.location.search.includes('view');
+
+        if (isViewMode) {
             plateArea.classList.add('hidden');
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 서버에서 숫자 가져오기 (보안 필터링 전면 제거 버전)
-        function getCountFromServer() {
-            if (isSaving) return;
+        // 초기 화면 설정
+        countView.innerText = currentCount;
 
-            fetch(ALTERNATE_DB, { method: "GET", cache: "no-store" })
-                .then(res => res.json())
-                .then(resData => {
-                    if (isSaving) return;
-                    // 데이터 구조가 정상적으로 넘어왔을 때만 판독
-                    if (resData && resData.data && resData.data.count !== undefined) {
-                        const serverNum = Number(resData.data.count);
-                        if (!isNaN(serverNum)) {
-                            currentCount = serverNum;
-                            countView.innerText = currentCount;
+        // 초고속 실시간 연동망 연결
+        const eventSource = new EventSource(`${SERVER_URL}/sse`);
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const eventData = JSON.parse(event.data);
+                if (eventData && eventData.message !== undefined) {
+                    const msg = eventData.message.trim();
+                    
+                    // 1. 새로 들어온 기기가 "지금 몇이냐?" 하고 요청한 경우
+                    if (msg === "REQ_SYNC") {
+                        // 내가 조작 모드라면 내가 가진 최신 숫자를 즉시 쏴줌
+                        if (!isViewMode) {
+                            sendSignal("ANS:" + currentCount);
                         }
+                    } 
+                    // 2. 다른 폰이 쏴준 답변 신호를 받았을 때
+                    else if (msg.startsWith("ANS:")) {
+                        const targetNum = msg.split(":")[1];
+                        if (!isNaN(targetNum)) {
+                            updateLocalAndScreen(Number(targetNum));
+                        }
+                    } 
+                    // 3. 버튼 클릭으로 인한 일반 숫자 변동일 때
+                    else if (!isNaN(msg) && msg !== "") {
+                        updateLocalAndScreen(Number(msg));
                     }
-                })
-                .catch(() => { });
+                }
+            } catch (e) { }
+        };
+
+        // 화면과 브라우저 내장 메모리를 동시에 갱신하는 안전한 함수
+        function updateLocalAndScreen(num) {
+            currentCount = num;
+            countView.innerText = currentCount;
+            localStorage.setItem('mure_last_count', currentCount);
         }
 
-        // 서버에 숫자 딱 박아두기
-        function saveCountToServer(targetValue) {
-            isSaving = true;
-            
-            fetch(ALTERNATE_DB, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ data: { count: targetValue } })
-            })
-            .then(() => {
-                setTimeout(() => { isSaving = false; }, 300);
-            })
-            .catch(() => {
-                isSaving = false;
-            });
-        }
-
+        // 판수 세팅
         function setPlateCount(targetNumber) {
-            currentCount = Number(targetNumber);
-            countView.innerText = currentCount;
-            saveCountToServer(currentCount);
+            updateLocalAndScreen(targetNumber);
+            sendSignal(targetNumber);
         }
 
+        // 미세 조절
         function changeCount(amount) {
-            currentCount = Number(currentCount) + Number(amount);
-            countView.innerText = currentCount;
-            saveCountToServer(currentCount);
+            const nextCount = Number(currentCount) + Number(amount);
+            updateLocalAndScreen(nextCount);
+            sendSignal(nextCount);
         }
 
+        // 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                currentCount = 0;
-                countView.innerText = 0;
-                saveCountToServer(0);
+                updateLocalAndScreen(0);
+                sendSignal(0);
             }
         }
 
-        // 구동 즉시 마지막 데이터 가져오기 (새로고침 해결)
-        getCountFromServer();
+        // 서버 신호 전송
+        function sendSignal(value) {
+            fetch(SERVER_URL, {
+                method: 'POST',
+                body: String(value)
+            });
+        }
 
-        // 0.4초마다 연동 감시 파이프라인 작동
-        setInterval(getCountFromServer, 400);
+        // 🌟 접속하자마자 이미 열려 있는 다른 기기들에게 현재 숫자를 달라고 요청 (새로고침 버그 완벽 차단)
+        setTimeout(() => {
+            sendSignal("REQ_SYNC");
+        }, 300);
     </script>
 </body>
 </html>
