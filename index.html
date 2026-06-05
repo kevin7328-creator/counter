@@ -101,7 +101,7 @@
             resetArea.classList.add('hidden');
         }
 
-        // 실시간 신호 감지 스트리밍 연결 (0.1초 초고속 연동)
+        // 실시간 신호 감지 (0.1초 초고속 연동)
         const eventSource = new EventSource(`${SERVER_URL}/sse`);
         
         eventSource.onmessage = (event) => {
@@ -116,20 +116,28 @@
             }
         };
 
-        // 🌟 [추가] 화면이 켜지자마자 서버에 누적된 마지막 값을 강제로 긁어오는 안전장치
+        // 🌟 중간에 접속하거나 새로고침한 기기도 마지막 숫자를 무조건 찾아내는 완전 보완 함수
         function loadLastSignalFromServer() {
-            fetch(`${SERVER_URL}/json?since=all`)
+            // 캐시를 타지 않도록 주소 뒤에 매번 다른 난수를 붙여서 강제로 최신 데이터를 요청
+            fetch(`${SERVER_URL}/json?since=all&nocache=` + new Date().getTime())
                 .then(res => res.text())
                 .then(text => {
+                    if (!text.trim()) return;
+                    
+                    // 서버에 쌓인 로그들을 한 줄씩 쪼개서 배열로 만듦
                     const lines = text.trim().split("\n");
+                    
+                    // 가장 최근(맨 뒤)에 쌓인 로그부터 거꾸로 뒤지면서 진짜 '숫자'만 찾아냄
                     for (let i = lines.length - 1; i >= 0; i--) {
                         if (!lines[i]) continue;
-                        const data = JSON.parse(lines[i]);
-                        if (data && data.message !== undefined && !isNaN(data.message)) {
-                            currentCount = Number(data.message);
-                            countView.innerText = currentCount;
-                            break; // 가장 최근 마지막 숫자 하나만 찾으면 탈출
-                        }
+                        try {
+                            const data = JSON.parse(lines[i]);
+                            if (data && data.message !== undefined && !isNaN(data.message) && data.message.trim() !== "") {
+                                currentCount = Number(data.message);
+                                countView.innerText = currentCount;
+                                break; // 마지막 최신 숫자 하나 찾으면 바로 작동 멈춤
+                            }
+                        } catch(e) { }
                     }
                 })
                 .catch(err => console.log("초기 로딩 대기..."));
@@ -153,8 +161,10 @@
             });
         }
 
-        // 화면 켜지는 순간 바로 실행
+        // 화면이 켜지자마자 실행하고, 3초 뒤에 혹시 모를 로딩 유실을 방지하기 위해 한 번 더 체크
         loadLastSignalFromServer();
+        setTimeout(loadLastSignalFromServer, 1000);
+        setTimeout(loadLastSignalFromServer, 300);
     </script>
 </body>
 </html>
