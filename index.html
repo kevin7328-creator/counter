@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="ko"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.3.4)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.3.5)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -215,7 +215,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.3.4</div>
+    <div class="code-version-tag">v1.3.5</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -273,107 +273,3 @@
                 if (rawMsg === "99999") {
                     if (isViewMode) {
                         showHallStatus("✓ 주방에서 확인했습니다.");
-                    }
-                    return;
-                }
-
-                // 3. 디저트 호출 신호 검사 (문자열 상태에서 원천 차단 및 격리)
-                // 4글자이면서 끝자리가 "30"인 형태 (예: "1130")
-                if (rawMsg.length === 4 && rawMsg.endsWith("30")) {
-                    // 오직 [주방 모드]일 때만 팝업 띄우고 번쩍임 효과 실행
-                    if (!isViewMode) { 
-                        const tableCode = rawMsg.charAt(0);
-                        const dessertCode = rawMsg.charAt(1);
-
-                        const tableName = (tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
-                        const dessertName = (dessertCode === "1") ? "🍨 젤라또" : "🍰 티라미수";
-                        
-                        mainBody.classList.add('flashing');
-                        document.getElementById('kitchen-msg-text').innerHTML = `🔔 [${tableName} 테이블]<br><br><span style="color:#30b0ff;">${dessertName}</span> 준비해주세요!`;
-                        kitchenPopup.style.display = 'flex';
-                    }
-                    return; // 디저트 처리가 끝났으므로 즉시 탈출 (아래 카운트 로직 안 탐)
-                }
-
-                // 4. 대기 카운터 신호 검사 (위의 특수 신호들을 다 거르고 남은 1~2자리 순수 숫자만 처리)
-                const numData = Number(rawMsg);
-                if (!isNaN(numData) && numData >= 0 && numData <= 30) {
-                    currentCount = numData;
-                    countView.innerText = currentCount;
-                    localStorage.setItem('mure_last_count', currentCount);
-                    // 숫자가 동기화될 때는 팝업창(kitchenPopup)이나 화면 번쩍임을 절대 제어하지 않음!
-                    return;
-                }
-
-            } catch (e) { console.error("수신 에러 발생:", e); }
-        };
-
-        // 초기 동기화 요청
-        setTimeout(() => { sendSignal("REQ_SYNC"); }, 500);
-
-        function showInlineTables(dessertCode) {
-            selectedDessertCode = dessertCode;
-            hallArea.classList.add('hidden');
-            tableInlineArea.classList.remove('hidden');
-        }
-
-        function cancelTableSelect() {
-            tableInlineArea.classList.add('hidden');
-            selectedDessertCode = 0;
-            hallArea.classList.remove('hidden');
-        }
-
-        function selectTable(tableCode) {
-            tableInlineArea.classList.add('hidden');
-            const signalValue = `${tableCode}${selectedDessertCode}30`;
-            sendSignal(signalValue);
-
-            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
-            const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
-            showHallStatus(`✈ [${tableName} ${dessertName}] 전송 완료`);
-        }
-
-        function showHallStatus(text) {
-            hallArea.classList.add('hidden');
-            tableInlineArea.classList.add('hidden');
-            statusMessageBox.innerText = text;
-            statusMessageBox.classList.remove('hidden');
-
-            setTimeout(() => {
-                statusMessageBox.classList.add('hidden');
-                hallArea.classList.remove('hidden');
-            }, 1500);
-        }
-
-        function dismissKitchenAlert() {
-            kitchenPopup.style.display = 'none';
-            mainBody.classList.remove('flashing');
-            sendSignal("99999"); 
-        }
-
-        function setPlateCount(targetNumber) {
-            if (targetNumber > 30) targetNumber = 30;
-            sendSignal(String(targetNumber));
-        }
-
-        function changeCount(amount) {
-            const nextCount = Number(currentCount) + Number(amount);
-            if (nextCount >= 0 && nextCount <= 30) {
-                sendSignal(String(nextCount));
-            }
-        }
-
-        function resetCount() {
-            if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendSignal("0");
-            }
-        }
-
-        function sendSignal(value) {
-            fetch(SERVER_URL, { 
-                method: 'POST', 
-                mode: 'no-cors',
-                body: String(value)
-            }).catch(e => {});
-        }
-    </script></body></html>
