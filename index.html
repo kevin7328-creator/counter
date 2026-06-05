@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.6.5)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.7.0)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.6.5</div>
+    <div class="code-version-tag">v1.7.0</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -229,10 +229,7 @@
     </div>
 
     <script>
-        // 1. 방화벽 안 걸리는 구글 데이터베이스 메인 주소
         const FIREBASE_URL = "https://mure-counter-default-rtdb.firebaseio.com/mure_v16.json";
-        
-        // 2. ntfy 앱 알림용 토픽 설정 (스마트폰 앱에 등록된 이름으로 지정)
         const MY_TOPIC_NAME = "mure_v16"; 
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
@@ -257,7 +254,6 @@
         }
         countView.innerText = currentCount;
 
-        // 구글 서버에 실시간 상태 업데이트 (PUT)
         function updateFirebaseData(newData) {
             fetch(FIREBASE_URL, {
                 method: 'PUT',
@@ -266,25 +262,27 @@
             }).catch(e => console.error("Firebase 전송 실패:", e));
         }
 
-        // 와이파이 망에서 ntfy 차단을 뚫기 위한 프록시(CORS 우회) 기반 알림 전송 함수
+        // [교정] LTE 통신사 방화벽에 걸리는 프록시 우회 주소를 제거하고, ntfy 규격 순정 규정대로 direct 통신
         function triggerNtfyPush(title, message) {
-            // 방화벽 필터링을 완벽하게 관통하는 프록시 경로 게이트웨이 사용
-            const proxyUrl = `https://corsproxy.io/?https://ntfy.sh/${MY_TOPIC_NAME}`;
+            const rawNtfyUrl = `https://ntfy.sh/${MY_TOPIC_NAME}`;
             
-            fetch(proxyUrl, {
+            fetch(rawNtfyUrl, {
                 method: 'POST',
                 headers: {
-                    'X-Title': encodeURIComponent(title),
-                    'X-Priority': 'high',
-                    'X-Tags': 'bell'
+                    'Title': title,        /* 순정 표준 헤더 (X-Title 대신 Title 사용 가능) */
+                    'Priority': 'high',
+                    'Tags': 'bell'
                 },
                 body: message
-            }).catch(e => console.error("ntfy 푸시 앱 전송 실패:", e));
+            }).catch(e => console.error("ntfy 전송 실패:", e));
         }
 
-        // 실시간 구글 스트리밍 연결 (와이파이 차단 절대 안 됨)
+        // 실시간 구글 스트리밍 연결 및 네트워크 상태 감원 기능 강화
         function startFirebaseSSE() {
-            if (sseSource) sseSource.close();
+            if (sseSource) {
+                sseSource.close();
+                sseSource = null;
+            }
             
             sseSource = new EventSource(FIREBASE_URL);
             
@@ -294,8 +292,6 @@
                     if (!eventData || eventData.data === undefined) return;
                     
                     const serverData = eventData.data;
-                    
-                    // 단일 값 패치 대응 및 전체 객체 동기화 대응
                     let targetCount = currentCount;
                     let targetBell = "";
 
@@ -310,14 +306,12 @@
                         return;
                     }
 
-                    // 1. 카운터 값 동기화
                     if (!isNaN(targetCount) && targetCount >= 0 && targetCount <= 30) {
                         currentCount = targetCount;
                         countView.innerText = currentCount;
                         localStorage.setItem('mure_last_count', currentCount);
                     }
                     
-                    // 2. 디저트 주방 알림 팝업 제어 (구글 실시간 수신)
                     if (targetBell === "99999") {
                         if (isViewMode) {
                             showHallStatus("✓ 주방에서 확인했습니다.");
@@ -344,22 +338,29 @@
                 } catch (e) { console.error("데이터 파싱 에러:", e); }
             });
 
+            // [교정] LTE 환경에서 기지국이 바뀌거나 신호가 약해 끊기면 0.5초 만에 즉시 칼같이 재연결 시도
             sseSource.onerror = () => {
-                sseSource.close();
-                setTimeout(startFirebaseSSE, 2000);
+                if (sseSource) sseSource.close();
+                setTimeout(startFirebaseSSE, 500);
             };
         }
 
-        // 초기 연결
+        // 초기 실행
         startFirebaseSSE();
 
-        // 화면 복귀 감시 및 자동 재연동
+        // 스마트폰 화면 켜지거나 브라우저 복귀 시 즉각 재연결
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') startFirebaseSSE();
+            if (document.visibilityState === 'visible') {
+                startFirebaseSSE();
+            }
         });
+
+        // 3초 주기로 통신망 강제 헬스체크 (LTE 끊김 방지용 파수꾼 스크립트)
         setInterval(() => {
-            if (!sseSource || sseSource.readyState !== 1) startFirebaseSSE();
-        }, 5000);
+            if (!sseSource || sseSource.readyState !== 1) {
+                startFirebaseSSE();
+            }
+        }, 3000);
 
         function showInlineTables(dessertCode) {
             selectedDessertCode = dessertCode;
@@ -377,11 +378,9 @@
             tableInlineArea.classList.add('hidden');
             const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            // 1) 구글 서버로 신호 전송 -> 주방 웹화면 팝업 즉시 생성
             updateFirebaseData({ count: currentCount, bell: signalValue });
 
-            // 2) 백그라운드 폰 알림용 ntfy 어플 푸시 전송 (우회 게이트웨이 탑재)
-            const tableName = (tableCode === 9 || tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
+            const tableName = (tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
             triggerNtfyPush(`[MURÉ 디저트 호출]`, `${tableName} 테이블 - ${dessertName} 준비해주세요!`);
 
@@ -396,7 +395,10 @@
 
             setTimeout(() => {
                 statusMessageBox.classList.add('hidden');
-                hallArea.classList.remove('hidden');
+                hallArea.remove('hidden');
+                if (isViewMode) {
+                    hallArea.classList.remove('hidden');
+                }
             }, 1500);
         }
 
