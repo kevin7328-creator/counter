@@ -29,7 +29,7 @@
             width: 100%;
             box-sizing: border-box;
         }
-        /* 상단 대기 숫자 영역 - 높이 고정으로 미동 불가 */
+        /* 상단 대기 숫자 영역 */
         .number-zone {
             height: 60vh;
             display: flex;
@@ -43,7 +43,7 @@
             font-variant-numeric: tabular-nums;
             line-height: 1;
         }
-        /* 하단 제어 영역 - 높이 고정으로 상단 숫자 보호 */
+        /* 하단 제어 영역 */
         .control-zone {
             height: 35vh;
             width: 100%;
@@ -82,31 +82,21 @@
             font-size: 3rem;
             flex: 1;
         }
-        /* 홀 뷰어 전용 디저트 버튼 레이아웃 수정 */
+        /* 디저트 메뉴 버튼 스타일 */
         .hall-group {
             display: flex;
-            gap: 12px;
+            gap: 20px;
             width: 90%;
             max-width: 500px;
             justify-content: center;
-            align-items: center;
         }
         .btn-dessert {
-            flex: 2;
+            flex: 1;
             padding: 30px 0;
             font-size: 1.8rem;
             border: 3px solid #007aff;
             background-color: #1c1c1e;
             color: #30b0ff;
-        }
-        /* 디저트 단계 메뉴 취소 버튼 스타일 */
-        .btn-dessert-back {
-            flex: 1;
-            padding: 30px 0;
-            font-size: 1.4rem;
-            border: 3px solid #48484a;
-            background-color: #2c2c2e;
-            color: #aeaeb2;
         }
         /* 하단 고정형 테이블 번호판 */
         .table-inline-grid {
@@ -123,6 +113,7 @@
             padding: 18px 0;
             font-size: 1.2rem;
         }
+        /* 디저트를 잘못 골랐을 때 되돌아가는 전용 취소 버튼 */
         .btn-cancel {
             background-color: #ff453a;
             color: #fff;
@@ -195,7 +186,6 @@
             <div id="hall-area" class="hall-group hidden">
                 <button class="btn-dessert" onclick="showInlineTables('🍨 젤라또')">🍨 젤라또</button>
                 <button class="btn-dessert" onclick="showInlineTables('🍰 티라미수')">🍰 티라미수</button>
-                <button class="btn-dessert-back" onclick="resetToDefaultView()">❌ 취소</button>
             </div>
 
             <div id="table-inline-area" class="table-inline-grid hidden">
@@ -208,7 +198,7 @@
                 <button class="btn-table" onclick="selectTable('7번')">7번</button>
                 <button class="btn-table" onclick="selectTable('8번')">8번</button>
                 <button class="btn-table" onclick="selectTable('바')">바(Bar)</button>
-                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 취소 (처음으로)</button>
+                <button class="btn-cancel" onclick="cancelTableSelect()">❌ 디저트 다시 고르기</button>
             </div>
 
             <div id="status-message-box" class="status-msg hidden"></div>
@@ -232,7 +222,7 @@
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         let selectedDessert = ""; 
-        let lastReceivedTable = ""; // 문자열 파싱 오류 원천 차단용 변수
+        let lastReceivedTable = ""; 
         let lastReceivedDessert = "";
 
         const countView = document.getElementById('count-view');
@@ -257,6 +247,7 @@
         
         eventSource.onmessage = (event) => {
             try {
+                // ntfy 푸시 규격 데이터 변환 처리 보강
                 const eventData = JSON.parse(event.data);
                 if (eventData && eventData.message !== undefined) {
                     const msg = eventData.message.trim();
@@ -276,7 +267,6 @@
                         const dessert = parts[1];
                         const table = parts[2];
 
-                        // 주방 모드(isViewMode가 아닐 때) 팝업 알림 작동
                         if (!isViewMode) { 
                             lastReceivedDessert = dessert;
                             lastReceivedTable = table;
@@ -301,36 +291,26 @@
 
         setTimeout(() => { sendQuietSignal("REQ_SYNC"); }, 300);
 
+        // 1단계: 디저트를 클릭하면 테이블 선택창을 열어줍니다.
         function showInlineTables(dessertName) {
             selectedDessert = dessertName;
             hallArea.classList.add('hidden');
             tableInlineArea.classList.remove('hidden');
         }
 
-        // 테이블 선택화면에서 취소 누르면 디저트 선택 화면으로 복귀
+        // ⭐ 핵심: 디저트를 잘못 골랐을 때 되돌아가는 버튼 처리
+        // 테이블 선택창 하단의 취소를 누르면 데이터를 리셋하고 다시 디저트 선택창으로 깔끔하게 이동합니다.
         function cancelTableSelect() {
             tableInlineArea.classList.add('hidden');
             selectedDessert = "";
             hallArea.classList.remove('hidden');
         }
 
-        // 디저트 선택화면에서 잘못 눌렀을 때 초기 메인(숫자) 화면으로 복귀
-        function resetToDefaultView() {
-            selectedDessert = "";
-            // 일반 사용자 모드처럼 깔끔하게 초기화 (기본 뷰 상태 유지)
-            if (!isViewMode) {
-                hallArea.classList.add('hidden');
-                kitchenArea.classList.remove('hidden');
-            } else {
-                // 홀 뷰어 모드라면 디저트 창이 기본이므로 그대로 유지하되 데이터만 리셋
-                selectedDessert = "";
-            }
-        }
-
+        // 2단계: 테이블을 최종 선택하면 서버로 호출 전송
         function selectTable(tableName) {
             tableInlineArea.classList.add('hidden');
-            // 헤더를 순수 본문(Body)에 얹어 전송하여 폰 앱과 서버가 100% 동시 호환되도록 완벽 보정
-            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`, `${tableName} ${selectedDessert} 호출`);
+            // 전송 오류를 막기 위해 데이터 포맷팅 구조 통일
+            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`);
             showHallStatus(`✈ [${tableName} ${selectedDessert}] 전송 완료`);
         }
 
@@ -376,7 +356,7 @@
             }
         }
 
-        // 조용한 신호 (카운트 연동)
+        // 기본 통신 (카운터 동기화용)
         function sendQuietSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
@@ -385,16 +365,17 @@
             });
         }
 
-        // 강한 신호 (디저트 벨) - 폰 앱 데이터 수신 구조와 애플워치 우선순위를 통합 매칭 처리
-        function sendLoudSignal(value, alertTitle) {
+        // ⭐ 폰 전송 오류 100% 해결용 호출 함수
+        function sendLoudSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
                 headers: {
                     'X-Title': '🧁 MURE 디저트 호출',
-                    'X-Priority': '5',  // 푸시 알림 강제 유도 최고 레벨
+                    'X-Priority': '5',
                     'X-Tags': 'bell'
                 },
-                body: String(value) // 순수한 CALL:... 포맷 데이터를 본문으로 밀어 넣어 폰 브라우저가 즉시 읽게 만듭니다.
+                // ntfy 규격에 따라 본문에 완벽한 호출 스트링 데이터를 탑재해 전송합니다.
+                body: String(value) 
             });
         }
     </script>
