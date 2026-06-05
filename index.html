@@ -120,91 +120,88 @@
     </div>
 
     <script>
-        const TOPIC = "mure_pos_live_counter_channel_2026";
-        const SERVER_URL = `https://ntfy.sh/${TOPIC}`;
+        // 🌟 [보안 100% 개방] 언제 어디서나 읽고 쓸 수 있는 완전 공용 영구 저장소 주소
+        const DB_URL = "https://mure-counter-default-rtdb.asia-southeast1.firebasedatabase.app/mure_bakery_count.json";
         
         let currentCount = 0;
+        let isSaving = false; // 내가 버튼 누르는 순간 다른 기기의 자동 조회가 내 숫자를 덮어쓰지 않게 막는 안전핀
+        
         const countView = document.getElementById('count-view');
         const plateArea = document.getElementById('plate-area');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
 
-        const isViewMode = window.location.search.includes('view');
-
-        if (isViewMode) {
+        if (window.location.search.includes('view')) {
             plateArea.classList.add('hidden');
             controls.classList.add('hidden');
             resetArea.classList.add('hidden');
         }
 
-        // 실시간 신호 연동
-        const eventSource = new EventSource(`${SERVER_URL}/sse`);
-        
-        eventSource.onmessage = (event) => {
-            try {
-                const eventData = JSON.parse(event.data);
-                if (eventData && eventData.message !== undefined) {
-                    const msg = eventData.message.trim();
+        // 🌟 [핵심] 서버 저장소에 들어있는 '진짜 최종 숫자'를 무조건 긁어오는 함수
+        function getCountFromServer() {
+            if (isSaving) return; // 전송 중일 땐 튕김 방지를 위해 패스
+
+            // 아이폰 사파리가 과거 데이터를 재탕(캐시)하지 못하게 난수 주소 강제 적용
+            fetch(DB_URL + "?nocache=" + new Date().getTime(), { cache: "no-store" })
+                .then(res => res.json())
+                .then(data => {
+                    if (isSaving) return;
                     
-                    // 🌟 1. 누군가 새로고침해서 "숫자 좀 보내달라"고 요청한 경우 (REQ 신호)
-                    if (msg === "REQ_CURRENT_COUNT") {
-                        // 내가 조작 모드이고, 화면에 숫자가 있다면 그 숫자를 서버에 즉시 다시 쏴줌
-                        if (!isViewMode && currentCount > 0) {
-                            sendSignal("ANS:" + currentCount);
-                        }
-                    } 
-                    // 🌟 2. 새로고침한 기기를 위해 기존 폰이 숫자를 토스해준 경우 (ANS 신호)
-                    else if (msg.startsWith("ANS:")) {
-                        const targetNum = msg.split(":")[1];
-                        if (!isNaN(targetNum)) {
-                            currentCount = Number(targetNum);
-                            countView.innerText = currentCount;
-                        }
-                    } 
-                    // 3. 일반적인 숫자 변동 신호인 경우
-                    else if (!isNaN(msg) && msg !== "") {
-                        currentCount = Number(msg);
+                    // 서버에 값이 제대로 존재할 때만 화면 갱신
+                    if (data !== null && data !== undefined && !isNaN(data)) {
+                        currentCount = Number(data);
                         countView.innerText = currentCount;
                     }
-                }
-            } catch (e) { }
-        };
-
-        // 🌟 [핵심] 접속하자마자 다른 기기들에게 "현재 숫자 동기화 신호"를 구걸하는 함수
-        function requestSync() {
-            sendSignal("REQ_CURRENT_COUNT");
+                })
+                .catch(err => console.log("서버 연결 대기 중..."));
         }
 
+        // 🌟 [핵심] 누른 숫자를 서버 주머니에 영구히 저장하는 함수
+        function saveCountToServer(targetValue) {
+            isSaving = true;
+            
+            fetch(DB_URL, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(targetValue)
+            })
+            .then(() => {
+                // 서버 전송이 완전히 끝나고 0.2초 뒤에 락을 해제하여 안정성 극대화
+                setTimeout(() => { isSaving = false; }, 200);
+            })
+            .catch(() => {
+                isSaving = false;
+            });
+        }
+
+        // 판수 선택 (그 숫자로 즉시 고정 및 저장)
         function setPlateCount(targetNumber) {
             currentCount = Number(targetNumber);
             countView.innerText = currentCount;
-            sendSignal(currentCount);
+            saveCountToServer(currentCount);
         }
 
+        // 미세 조절 (+1, -1)
         function changeCount(amount) {
-            const nextCount = Number(currentCount) + Number(amount);
-            currentCount = nextCount;
+            currentCount = Number(currentCount) + Number(amount);
             countView.innerText = currentCount;
-            sendSignal(nextCount);
+            saveCountToServer(currentCount);
         }
 
+        // 초기화
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
                 currentCount = 0;
                 countView.innerText = 0;
-                sendSignal(0);
+                saveCountToServer(0);
             }
         }
 
-        function sendSignal(value) {
-            fetch(SERVER_URL, {
-                method: 'POST',
-                body: String(value)
-            });
-        }
+        // 켜자마자 서버 저장소에서 마지막에 쓰던 숫자 긁어오기 (새로고침 버그 박멸)
+        getCountFromServer();
 
-        // 켜지자마자 다른 폰에 동기화 신호 요청 (0.2초 딜레이를 주어 안정성 확보)
-        setTimeout(requestSync, 200);
+        // 🌟 0.4초(400ms)마다 서버 저장소를 계속 감시하여 다른 기기들과 오차 없이 실시간 동기화
+        setInterval(getCountFromServer, 400);
     </script>
 </body>
 </html>
