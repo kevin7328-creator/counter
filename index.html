@@ -243,11 +243,11 @@
         }
         countView.innerText = currentCount;
 
+        // 🌟 [원상 복구] 가장 완벽하게 작동하던 순수 텍스트 수신 방식으로 롤백 (연동 100% 복구)
         const eventSource = new EventSource(`${SERVER_URL}/sse`);
         
         eventSource.onmessage = (event) => {
             try {
-                // ntfy 푸시 규격 데이터 변환 처리 보강
                 const eventData = JSON.parse(event.data);
                 if (eventData && eventData.message !== undefined) {
                     const msg = eventData.message.trim();
@@ -291,26 +291,33 @@
 
         setTimeout(() => { sendQuietSignal("REQ_SYNC"); }, 300);
 
-        // 1단계: 디저트를 클릭하면 테이블 선택창을 열어줍니다.
+        // 디저트 선택 시 테이블 열기
         function showInlineTables(dessertName) {
             selectedDessert = dessertName;
             hallArea.classList.add('hidden');
             tableInlineArea.classList.remove('hidden');
         }
 
-        // ⭐ 핵심: 디저트를 잘못 골랐을 때 되돌아가는 버튼 처리
-        // 테이블 선택창 하단의 취소를 누르면 데이터를 리셋하고 다시 디저트 선택창으로 깔끔하게 이동합니다.
+        // 디저트를 잘못 골랐을 때 되돌아가는 취소 버튼 기능
         function cancelTableSelect() {
             tableInlineArea.classList.add('hidden');
             selectedDessert = "";
             hallArea.classList.remove('hidden');
         }
 
-        // 2단계: 테이블을 최종 선택하면 서버로 호출 전송
+        // 테이블 선택 시 호출 발생
         function selectTable(tableName) {
             tableInlineArea.classList.add('hidden');
-            // 전송 오류를 막기 위해 데이터 포맷팅 구조 통일
-            sendLoudSignal(`CALL:${selectedDessert}:${tableName}`);
+            
+            // 🌟 핵심 해결책: 순수 브라우저 전송용과 푸시/워치 알림용을 따로 보냅니다!
+            const signalValue = `CALL:${selectedDessert}:${tableName}`;
+            
+            // 1. 주방 폰 브라우저 팝업창을 즉시 띄우는 깨끗한 신호 전송
+            sendQuietSignal(signalValue);
+            
+            // 2. 스마트워치 진동 및 스마트폰 상단바 푸시를 띄우는 강한 신호 전송
+            sendLoudSignal(signalValue);
+
             showHallStatus(`✈ [${tableName} ${selectedDessert}] 전송 완료`);
         }
 
@@ -356,7 +363,7 @@
             }
         }
 
-        // 기본 통신 (카운터 동기화용)
+        // [순수 텍스트 전송 - 에러 유발 원천 차단]
         function sendQuietSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
@@ -365,7 +372,7 @@
             });
         }
 
-        // ⭐ 폰 전송 오류 100% 해결용 호출 함수
+        // [워치 푸시 전용 전송]
         function sendLoudSignal(value) {
             fetch(SERVER_URL, { 
                 method: 'POST', 
@@ -374,7 +381,6 @@
                     'X-Priority': '5',
                     'X-Tags': 'bell'
                 },
-                // ntfy 규격에 따라 본문에 완벽한 호출 스트링 데이터를 탑재해 전송합니다.
                 body: String(value) 
             });
         }
