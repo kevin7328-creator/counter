@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MURÉ 실시간 카운터 & 호출벨 (v1.5.5)</title>
+    <title>MURÉ 실시간 카운터 & 호출벨 (v1.6.5)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -219,7 +219,7 @@
         <button class="btn-reset" onclick="resetCount()">초기화</button>
     </div>
 
-    <div class="code-version-tag">v1.5.5</div>
+    <div class="code-version-tag">v1.6.5</div>
 
     <div class="kitchen-alert" id="kitchen-popup">
         <div class="kitchen-content">
@@ -229,8 +229,11 @@
     </div>
 
     <script>
-        // 와이파이 방화벽 통과를 위해 ntfy 공식 우회 도메인(ntfy.be) 사용
-        const NTFY_BASE_URL = "https://ntfy.be/mure_v16";
+        // 1. 방화벽 안 걸리는 구글 데이터베이스 메인 주소
+        const FIREBASE_URL = "https://mure-counter-default-rtdb.firebaseio.com/mure_v16.json";
+        
+        // 2. ntfy 앱 알림용 토픽 설정 (스마트폰 앱에 등록된 이름으로 지정)
+        const MY_TOPIC_NAME = "mure_v16"; 
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         let selectedDessertCode = 0; 
@@ -254,64 +257,77 @@
         }
         countView.innerText = currentCount;
 
-        // ntfy 서버로 메시지를 보내는 표준 POST 함수
-        function sendNtfyMessage(messageStr, isSilent = false) {
-            const headers = { 'Content-Type': 'text/plain' };
-            // 카운터 변경값 등 백그라운드 팝업이 필요 없는 알림은 우선순위를 최하(min)로 낮춰 무음 처리
-            if (isSilent) {
-                headers['X-Priority'] = 'min';
-            } else {
-                headers['X-Priority'] = 'high'; // 디저트 호출은 중요 알림 처리
-            }
-
-            fetch(NTFY_BASE_URL, {
-                method: 'POST',
-                headers: headers,
-                body: messageStr
-            }).catch(e => console.error("ntfy 전송 실패:", e));
+        // 구글 서버에 실시간 상태 업데이트 (PUT)
+        function updateFirebaseData(newData) {
+            fetch(FIREBASE_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newData)
+            }).catch(e => console.error("Firebase 전송 실패:", e));
         }
 
-        // ntfy 실시간 스트리밍 연결 개시 (SSE 호환 주소 사용)
-        function startNtfySSE() {
+        // 와이파이 망에서 ntfy 차단을 뚫기 위한 프록시(CORS 우회) 기반 알림 전송 함수
+        function triggerNtfyPush(title, message) {
+            // 방화벽 필터링을 완벽하게 관통하는 프록시 경로 게이트웨이 사용
+            const proxyUrl = `https://corsproxy.io/?https://ntfy.sh/${MY_TOPIC_NAME}`;
+            
+            fetch(proxyUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Title': encodeURIComponent(title),
+                    'X-Priority': 'high',
+                    'X-Tags': 'bell'
+                },
+                body: message
+            }).catch(e => console.error("ntfy 푸시 앱 전송 실패:", e));
+        }
+
+        // 실시간 구글 스트리밍 연결 (와이파이 차단 절대 안 됨)
+        function startFirebaseSSE() {
             if (sseSource) sseSource.close();
             
-            // ntfy 공식 규격에 맞는 sse 전용 endpoint 연결
-            sseSource = new EventSource(`${NTFY_BASE_URL}/sse`);
+            sseSource = new EventSource(FIREBASE_URL);
             
-            sseSource.onmessage = (event) => {
+            sseSource.addEventListener('put', (event) => {
                 try {
                     const eventData = JSON.parse(event.data);
-                    if (!eventData || !eventData.message) return;
+                    if (!eventData || eventData.data === undefined) return;
                     
-                    const rawMsg = String(eventData.message).trim();
+                    const serverData = eventData.data;
                     
-                    // 1. 주방 확인 알림 (99999) 처리
-                    if (rawMsg === "99999") {
+                    // 단일 값 패치 대응 및 전체 객체 동기화 대응
+                    let targetCount = currentCount;
+                    let targetBell = "";
+
+                    if (eventData.path === "/") {
+                        if (serverData && serverData.count !== undefined) targetCount = Number(serverData.count);
+                        if (serverData && serverData.bell !== undefined) targetBell = String(serverData.bell);
+                    } else if (eventData.path === "/count") {
+                        targetCount = Number(serverData);
+                    } else if (eventData.path === "/bell") {
+                        targetBell = String(serverData);
+                    } else {
+                        return;
+                    }
+
+                    // 1. 카운터 값 동기화
+                    if (!isNaN(targetCount) && targetCount >= 0 && targetCount <= 30) {
+                        currentCount = targetCount;
+                        countView.innerText = currentCount;
+                        localStorage.setItem('mure_last_count', currentCount);
+                    }
+                    
+                    // 2. 디저트 주방 알림 팝업 제어 (구글 실시간 수신)
+                    if (targetBell === "99999") {
                         if (isViewMode) {
                             showHallStatus("✓ 주방에서 확인했습니다.");
                         } else {
                             kitchenPopup.style.display = 'none';
                             mainBody.classList.remove('flashing');
                         }
-                        return;
-                    }
-
-                    // 2. 카운터 동기화 코드 처리 (CNT_숫자 형태)
-                    if (rawMsg.startsWith("CNT_")) {
-                        const numStr = rawMsg.replace("CNT_", "");
-                        const num = Number(numStr);
-                        if (!isNaN(num) && num >= 0 && num <= 30) {
-                            currentCount = num;
-                            countView.innerText = currentCount;
-                            localStorage.setItem('mure_last_count', currentCount);
-                        }
-                        return;
-                    }
-                    
-                    // 3. 디저트 알림 벨 동기화 (DSS_코드 형태)
-                    if (rawMsg.startsWith("DSS_")) {
+                    } else if (targetBell.startsWith("DSS_")) {
                         if (!isViewMode) {
-                            const codeStr = rawMsg.replace("DSS_", "");
+                            const codeStr = targetBell.replace("DSS_", "");
                             if (/^[1-9][1-2]30$/.test(codeStr)) {
                                 const tableCode = codeStr.charAt(0);
                                 const dessertCode = codeStr.charAt(1);
@@ -326,23 +342,23 @@
                         }
                     }
                 } catch (e) { console.error("데이터 파싱 에러:", e); }
-            };
+            });
 
             sseSource.onerror = () => {
                 sseSource.close();
-                setTimeout(startNtfySSE, 2000);
+                setTimeout(startFirebaseSSE, 2000);
             };
         }
 
-        // 초기 실행
-        startNtfySSE();
+        // 초기 연결
+        startFirebaseSSE();
 
-        // 화면 전환 복귀 및 연결 감시
+        // 화면 복귀 감시 및 자동 재연동
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') startNtfySSE();
+            if (document.visibilityState === 'visible') startFirebaseSSE();
         });
         setInterval(() => {
-            if (!sseSource || sseSource.readyState !== 1) startNtfySSE();
+            if (!sseSource || sseSource.readyState !== 1) startFirebaseSSE();
         }, 5000);
 
         function showInlineTables(dessertCode) {
@@ -361,11 +377,14 @@
             tableInlineArea.classList.add('hidden');
             const signalValue = `DSS_${tableCode}${selectedDessertCode}30`;
             
-            // 중요 디저트 알림이므로 무음 처리(isSilent)하지 않고 전송 -> 스마트폰 푸시 알림 발생
-            sendNtfyMessage(signalValue, false);
+            // 1) 구글 서버로 신호 전송 -> 주방 웹화면 팝업 즉시 생성
+            updateFirebaseData({ count: currentCount, bell: signalValue });
 
-            const tableName = (tableCode === 9 || tableCode === "9") ? "바(Bar)" : `${tableCode}번`;
+            // 2) 백그라운드 폰 알림용 ntfy 어플 푸시 전송 (우회 게이트웨이 탑재)
+            const tableName = (tableCode === 9 || tableCode === 9) ? "바(Bar)" : `${tableCode}번`;
             const dessertName = (selectedDessertCode === 1) ? "젤라또" : "티라미수";
+            triggerNtfyPush(`[MURÉ 디저트 호출]`, `${tableName} 테이블 - ${dessertName} 준비해주세요!`);
+
             showHallStatus(`✈ [${tableName} ${dessertName}] 전송 완료`);
         }
 
@@ -384,24 +403,24 @@
         function dismissKitchenAlert() {
             kitchenPopup.style.display = 'none';
             mainBody.classList.remove('flashing');
-            sendNtfyMessage("99999", true); // 확인 신호는 무음 전송
+            updateFirebaseData({ count: currentCount, bell: "99999" });
         }
 
         function setPlateCount(targetNumber) {
             if (targetNumber > 30) targetNumber = 30;
-            sendNtfyMessage(`CNT_${targetNumber}`, true); // 카운트 변경은 무음 전송
+            updateFirebaseData({ count: targetNumber, bell: "" });
         }
 
         function changeCount(amount) {
             const nextCount = Number(currentCount) + Number(amount);
             if (nextCount >= 0 && nextCount <= 30) {
-                sendNtfyMessage(`CNT_${nextCount}`, true); // 카운트 변경은 무음 전송
+                updateFirebaseData({ count: nextCount, bell: "" });
             }
         }
 
         function resetCount() {
             if (confirm("정말로 숫자를 0으로 초기화하시겠습니까?")) {
-                sendNtfyMessage("CNT_0", true);
+                updateFirebaseData({ count: 0, bell: "" });
             }
         }
     </script>
