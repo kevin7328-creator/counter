@@ -23,9 +23,13 @@
         .btn-reset { background-color: #111111; color: #ff4d4d; border: 1px solid #222222; padding: 12px 30px; font-size: 1.2rem; border-radius: 10px; cursor: pointer; }
         .btn-reset:active { background-color: #331111; }
         .hidden { display: none !important; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background-color: #ff4d4d; position: fixed; top: 15px; right: 15px; }
+        .status-dot.online { background-color: #34c759; }
     </style>
 </head>
 <body>
+
+    <div class="status-dot" id="status-dot" title="연결 상태"></div>
 
     <div class="counter-container">
         <div class="number" id="count-view">0</div>
@@ -47,14 +51,17 @@
         <button class="btn-reset" onclick="resetCount()">숫자 초기화</button>
     </div>
 
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- 안정적인 cdnjs 라이브러리 사용 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 
     <script>
-        // 나만의 고유한 채널 주소 (겹치지 않게 중장문으로 설정)
         const TOPIC = "mure/pos/live/counter/secure/2026"; 
         
-        // 초고속 웹소켓 기반 무료 실시간 서버 연결
-        const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+        // EMQX 공용 고속 웹소켓 브로커 (HiveMQ 대안)
+        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+            keepalive: 30,
+            reconnectPeriod: 2000
+        });
         
         let currentCount = Number(localStorage.getItem('mure_last_count')) || 0;
         
@@ -62,6 +69,7 @@
         const plateArea = document.getElementById('plate-area');
         const controls = document.getElementById('controls');
         const resetArea = document.getElementById('reset-area');
+        const statusDot = document.getElementById('status-dot');
 
         const isViewMode = window.location.search.includes('view');
 
@@ -73,14 +81,21 @@
 
         countView.innerText = currentCount;
 
-        // 서버 연결 성공 시
         client.on('connect', () => {
+            statusDot.classList.add('online');
             client.subscribe(TOPIC);
-            // 접속하자마자 다른 기기들에게 현재 숫자 요청
             sendSignal("REQ_SYNC");
         });
 
-        // 상대방 기기에서 신호가 올 때 처리 로직
+        client.on('offline', () => {
+            statusDot.classList.remove('online');
+        });
+
+        client.on('error', (err) => {
+            console.error("MQTT 에러:", err);
+            statusDot.classList.remove('online');
+        });
+
         client.on('message', (topic, message) => {
             const msg = message.toString().trim();
             
@@ -124,16 +139,14 @@
             }
         }
 
-        // 신호 쏘기
         function sendSignal(value) {
-            if (client.connected) {
+            if (client && client.connected) {
                 client.publish(TOPIC, String(value));
             }
         }
 
-        // 스마트폰 화면 켜질 때 자동 재연결 및 동기화 완벽 대응
         document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible" && client.connected) {
+            if (document.visibilityState === "visible" && client && client.connected) {
                 sendSignal("REQ_SYNC");
             }
         });
